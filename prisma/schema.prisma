@@ -1,0 +1,78 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "linux-musl-arm64-openssl-3.0.x"]
+    output = "/home/ubuntu/igreja_gestao_membros/nextjs_space/node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Member {
+  id              String    @id @default(cuid())
+  nome            String
+  email           String?
+  telefone        String?
+  dataNascimento  DateTime?
+  endereco        String?
+  grupoPastoral   Boolean   @default(false)
+  grupoDevocional Boolean   @default(false)
+  grupoVisitantes Boolean   @default(false)
+  grupoSumidos    Boolean   @default(false)
+  redeRelacionamento String?
+  ativo           Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  emailLogs       EmailLog[]
+
+  @@map("members")
+}
+
+model MessageGroup {
+  id              String    @id @default(cuid())
+  nomeGrupo       String    @unique
+  mensagemPadrao  String    @default("")
+  frequenciaEnvio String    @default("mensal")
+  diaSemana       Int?      // 0-6 (Domingo-Sábado)
+  diaMes          Int?      // 1-31
+  horaEnvio       Int       @default(9) // 0-23
+  minutoEnvio     Int       @default(0) // 0, 15, 30, 45
+  flyerUrl        String?
+  ultimoEnvio     DateTime?
+  proximoEnvio    DateTime?
+  ativo           Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("message_groups")
+}
+
+model EmailLog {
+  id              String    @id @default(cuid())
+  grupo           String
+  membroId        String
+  membroNome      String
+  membroEmail     String?
+  status          String    @default("pendente") // pendente, enviando, enviado, erro
+  dataAgendamento DateTime  @default(now())
+  dataEnvio       DateTime?
+  mensagemEnviada String?
+  erroMensagem    String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  member          Member    @relation(fields: [membroId], references: [id], onDelete: Cascade)
+
+  @@map("email_logs")
+}
+
+model SystemConfig {
+  id                    String    @id @default(cuid())
+  automacaoAtiva        Boolean   @default(true)
+  ultimaVerificacao     DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@map("system_config")
+}

@@ -1,0 +1,41 @@
+cat > .gitignore << 'EOF'
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+
+# production
+dist/
+build/
+
+# env files (SECRETS)
+.env
+.env.*.local
+.env.local
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.log
+
+# cache
+.eslintcache
+*.tsbuildinfo
+
+# test/coverage
+coverage/
+
+# misc
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+
+# vercel
+.vercel
+EOF
