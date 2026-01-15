@@ -3,6 +3,10 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
 
+/* =======================
+   TIPOS
+======================= */
+
 type UpcomingBirthdayItem = {
   _id: string;
   nome: string;
@@ -15,26 +19,49 @@ type MemberBirth = {
   dataNascimento: Date | null;
 };
 
+type MessageGroupRow = {
+  id: string;
+  nomeGrupo: string;
+  mensagemPadrao: string | null;
+  frequenciaEnvio: string | null;
+  diaSemana: number | null;
+  diaMes: number | null;
+  horaEnvio: number | null;
+  minutoEnvio: number | null;
+  flyerUrl: string | null;
+  ultimoEnvio: Date | null;
+  proximoEnvio: Date | null;
+  ativo: boolean;
+};
+
+/* =======================
+   HANDLER
+======================= */
+
 export async function GET() {
   try {
+    /* Datas base */
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const [totalMembers, activeMembers, emailsToday, pendingEmails] = await Promise.all([
-      prisma.member.count(),
-      prisma.member.count({ where: { ativo: true } }),
-      prisma.emailLog.count({
-        where: {
-          dataEnvio: { gte: today, lt: tomorrow },
-          status: "enviado",
-        },
-      }),
-      prisma.emailLog.count({ where: { status: "pendente" } }),
-    ]);
+    /* Totais principais */
+    const [totalMembers, activeMembers, emailsToday, pendingEmails] =
+      await Promise.all([
+        prisma.member.count(),
+        prisma.member.count({ where: { ativo: true } }),
+        prisma.emailLog.count({
+          where: {
+            dataEnvio: { gte: today, lt: tomorrow },
+            status: "enviado",
+          },
+        }),
+        prisma.emailLog.count({ where: { status: "pendente" } }),
+      ]);
 
+    /* Contagem por grupos fixos */
     const [pastoral, devocional, visitantes, sumidos] = await Promise.all([
       prisma.member.count({ where: { grupoPastoral: true, ativo: true } }),
       prisma.member.count({ where: { grupoDevocional: true, ativo: true } }),
@@ -42,7 +69,7 @@ export async function GET() {
       prisma.member.count({ where: { grupoSumidos: true, ativo: true } }),
     ]);
 
-    // ✅ Mongo-friendly: pega membros ativos com dataNascimento e calcula em memória
+    /* Membros com data de nascimento (Mongo-friendly) */
     const membersWithBirth = (await prisma.member.findMany({
       where: { ativo: true, dataNascimento: { not: null } },
       select: { id: true, nome: true, dataNascimento: true },
@@ -51,54 +78,73 @@ export async function GET() {
     const currentMonth = today.getMonth() + 1;
     const currentDay = today.getDate();
 
-    // ✅ Sem reduce<number> (evita "Untyped function calls may not accept type arguments")
-    const aniversariantes = membersWithBirth.reduce((acc: number, m: MemberBirth) => {
-      if (!m.dataNascimento) return acc;
+    /* Aniversariantes de hoje */
+    const aniversariantes = membersWithBirth.reduce(
+      (acc: number, m: MemberBirth) => {
+        if (!m.dataNascimento) return acc;
 
-      const d = new Date(m.dataNascimento);
-      const month = d.getUTCMonth() + 1;
-      const day = d.getUTCDate();
+        const d = new Date(m.dataNascimento);
+        const month = d.getUTCMonth() + 1;
+        const day = d.getUTCDate();
 
-      return month === currentMonth && day === currentDay ? acc + 1 : acc;
-    }, 0);
+        return month === currentMonth && day === currentDay ? acc + 1 : acc;
+      },
+      0
+    );
 
+    /* Próximos aniversariantes */
     const proximosAniversariantes: UpcomingBirthdayItem[] = membersWithBirth
-      .map((m: MemberBirth): (UpcomingBirthdayItem & { daysUntil: number }) | null => {
-        if (!m.dataNascimento) return null;
+      .map(
+        (
+          m: MemberBirth
+        ): (UpcomingBirthdayItem & { daysUntil: number }) | null => {
+          if (!m.dataNascimento) return null;
 
-        const bday = new Date(m.dataNascimento);
-        const bdayMonth = bday.getUTCMonth();
-        const bdayDay = bday.getUTCDate();
+          const bday = new Date(m.dataNascimento);
+          const bdayMonth = bday.getUTCMonth();
+          const bdayDay = bday.getUTCDate();
 
-        let thisYearBday = new Date(today.getFullYear(), bdayMonth, bdayDay);
+          let thisYearBday = new Date(
+            today.getFullYear(),
+            bdayMonth,
+            bdayDay
+          );
 
-        if (thisYearBday < today) {
-          thisYearBday = new Date(today.getFullYear() + 1, bdayMonth, bdayDay);
+          if (thisYearBday < today) {
+            thisYearBday = new Date(
+              today.getFullYear() + 1,
+              bdayMonth,
+              bdayDay
+            );
+          }
+
+          const diffTime = thisYearBday.getTime() - today.getTime();
+          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+          return {
+            _id: m.id,
+            nome: m.nome,
+            data_nascimento: m.dataNascimento,
+            daysUntil: diffDays,
+          };
         }
-
-        const diffTime = thisYearBday.getTime() - today.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-        return {
-          _id: m.id,
-          nome: m.nome,
-          data_nascimento: m.dataNascimento,
-          daysUntil: diffDays,
-        };
-      })
+      )
       .filter(
-        (m): m is UpcomingBirthdayItem & { daysUntil: number } =>
+        (
+          m
+        ): m is UpcomingBirthdayItem & { daysUntil: number } =>
           m !== null && m.daysUntil >= 0 && m.daysUntil <= 30
       )
       .sort((a, b) => a.daysUntil - b.daysUntil)
       .slice(0, 10)
       .map(({ daysUntil, ...rest }) => rest);
 
-    const allGroups = await prisma.messageGroup.findMany({
+    /* Grupos de mensagens */
+    const allGroups = (await prisma.messageGroup.findMany({
       orderBy: { nomeGrupo: "asc" },
-    });
+    })) as MessageGroupRow[];
 
-    const groupsWithCounts = allGroups.map((g) => {
+    const groupsWithCounts = allGroups.map((g: MessageGroupRow) => {
       let memberCount = 0;
 
       switch (g.nomeGrupo) {
@@ -136,6 +182,7 @@ export async function GET() {
       };
     });
 
+    /* Resposta */
     return NextResponse.json({
       success: true,
       data: {
