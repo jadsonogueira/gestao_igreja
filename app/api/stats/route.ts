@@ -62,8 +62,15 @@ export async function GET() {
       },
     });
 
+    type BirthdayWithDays = {
+      _id: string;
+      nome: string;
+      data_nascimento: Date;
+      daysUntil: number;
+    };
+
     const proximosAniversariantes = upcomingBirthdays
-      .map((m: (typeof upcomingBirthdays)[number]) => {
+      .map((m: (typeof upcomingBirthdays)[number]): BirthdayWithDays | null => {
         if (!m.dataNascimento) return null;
 
         const bday = new Date(m.dataNascimento);
@@ -86,10 +93,7 @@ export async function GET() {
           daysUntil: diffDays,
         };
       })
-      .filter(
-        (m): m is NonNullable<typeof m> =>
-          m !== null && m.daysUntil >= 0 && m.daysUntil <= 30
-      )
+      .filter((m): m is BirthdayWithDays => m !== null && m.daysUntil >= 0 && m.daysUntil <= 30)
       .sort((a, b) => a.daysUntil - b.daysUntil)
       .slice(0, 10)
       .map(({ daysUntil, ...rest }) => rest);
