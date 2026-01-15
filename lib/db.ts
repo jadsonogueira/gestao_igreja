@@ -1,24 +1,19 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from "@prisma/client";
 
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
-
-function createPrismaClient() {
-  return new PrismaClient({
-    log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
-    datasources: {
-      db: {
-        url: process.env.DATABASE_URL,
-      },
-    },
-  });
+declare global {
+  // eslint-disable-next-line no-var
+  var prisma: PrismaClient | undefined;
 }
 
-// Singleton pattern - sempre reutilizar conexão
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+const prismaClientSingleton = () => {
+  return new PrismaClient({
+    log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
+  });
+};
 
-// Garantir que em TODOS os ambientes mantemos o singleton
-globalForPrisma.prisma = prisma;
+const prisma = global.prisma ?? prismaClientSingleton();
+
+// Em dev, reutiliza entre reloads; em produção não precisa guardar
+if (process.env.NODE_ENV !== "production") global.prisma = prisma;
 
 export default prisma;
