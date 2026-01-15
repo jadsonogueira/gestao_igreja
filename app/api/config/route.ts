@@ -1,81 +1,112 @@
-import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-// GET - Obter configuração do sistema
+import { NextResponse } from "next/server";
+import prisma from "@/lib/db";
+
+type SystemConfigRow = {
+  id: string;
+  automacaoAtiva: boolean;
+  ultimaVerificacao: Date | null;
+  updatedAt?: Date;
+};
+
+type GetResponse =
+  | {
+      success: true;
+      config: {
+        automacaoAtiva: boolean;
+        ultimaVerificacao: Date | null;
+      };
+    }
+  | { success: false; error: string };
+
+type PostResponse =
+  | {
+      success: true;
+      message: string;
+      config: {
+        automacaoAtiva: boolean;
+        ultimaVerificacao: Date | null;
+      };
+    }
+  | { success: false; error: string };
+
 export async function GET() {
   try {
-    let config = await prisma.systemConfig.findFirst();
+    let config = (await prisma.systemConfig.findFirst()) as SystemConfigRow | null;
 
-    // Se não existir configuração, criar uma
+    // Se não existir configuração, criar uma (runtime only; não no build)
     if (!config) {
-      config = await prisma.systemConfig.create({
-        data: {
-          automacaoAtiva: true,
-        },
-      });
+      config = (await prisma.systemConfig.create({
+        data: { automacaoAtiva: true },
+      })) as SystemConfigRow;
     }
 
-    return NextResponse.json({
+    const payload: GetResponse = {
       success: true,
       config: {
         automacaoAtiva: config.automacaoAtiva,
-        ultimaVerificacao: config.ultimaVerificacao,
+        ultimaVerificacao: config.ultimaVerificacao ?? null,
       },
-    });
+    };
+
+    return NextResponse.json(payload);
   } catch (error) {
-    console.error('Error fetching config:', error);
-    return NextResponse.json(
-      { success: false, error: 'Erro ao buscar configuração' },
-      { status: 500 }
-    );
+    console.error("Error fetching config:", error);
+
+    const payload: GetResponse = { success: false, error: "Erro ao buscar configuração" };
+    return NextResponse.json(payload, { status: 500 });
   }
 }
 
-// POST - Atualizar configuração do sistema
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const { automacaoAtiva } = body;
+    const body: unknown = await request.json();
 
-    if (typeof automacaoAtiva !== 'boolean') {
-      return NextResponse.json(
-        { success: false, error: 'automacaoAtiva deve ser um boolean' },
-        { status: 400 }
-      );
+    const automacaoAtiva =
+      typeof body === "object" && body !== null && "automacaoAtiva" in body
+        ? (body as { automacaoAtiva: unknown }).automacaoAtiva
+        : undefined;
+
+    if (typeof automacaoAtiva !== "boolean") {
+      const payload: PostResponse = {
+        success: false,
+        error: "automacaoAtiva deve ser um boolean",
+      };
+      return NextResponse.json(payload, { status: 400 });
     }
 
-    // Buscar ou criar configuração
-    let config = await prisma.systemConfig.findFirst();
+    let config = (await prisma.systemConfig.findFirst()) as SystemConfigRow | null;
 
     if (!config) {
-      config = await prisma.systemConfig.create({
-        data: {
-          automacaoAtiva,
-        },
-      });
+      config = (await prisma.systemConfig.create({
+        data: { automacaoAtiva },
+      })) as SystemConfigRow;
     } else {
-      config = await prisma.systemConfig.update({
+      config = (await prisma.systemConfig.update({
         where: { id: config.id },
         data: {
           automacaoAtiva,
           updatedAt: new Date(),
         },
-      });
+      })) as SystemConfigRow;
     }
 
-    return NextResponse.json({
+    const payload: PostResponse = {
       success: true,
-      message: `Automação ${automacaoAtiva ? 'ativada' : 'desativada'} com sucesso`,
+      message: `Automação ${automacaoAtiva ? "ativada" : "desativada"} com sucesso`,
       config: {
         automacaoAtiva: config.automacaoAtiva,
-        ultimaVerificacao: config.ultimaVerificacao,
+        ultimaVerificacao: config.ultimaVerificacao ?? null,
       },
-    });
+    };
+
+    return NextResponse.json(payload);
   } catch (error) {
-    console.error('Error updating config:', error);
-    return NextResponse.json(
-      { success: false, error: 'Erro ao atualizar configuração' },
-      { status: 500 }
-    );
+    console.error("Error updating config:", error);
+
+    const payload: PostResponse = { success: false, error: "Erro ao atualizar configuração" };
+    return NextResponse.json(payload, { status: 500 });
   }
 }
