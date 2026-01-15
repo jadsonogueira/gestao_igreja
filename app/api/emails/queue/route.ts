@@ -1,10 +1,24 @@
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
-import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
-import type { GroupType } from '@/lib/types';
+import { NextResponse } from "next/server";
+import prisma from "@/lib/db";
+import type { GroupType } from "@/lib/types";
 
-const validGroups: GroupType[] = ['aniversario', 'pastoral', 'devocional', 'visitantes', 'membros_sumidos'];
+const validGroups: GroupType[] = [
+  "aniversario",
+  "pastoral",
+  "devocional",
+  "visitantes",
+  "membros_sumidos",
+];
+
+type MemberMini = {
+  id: string;
+  nome: string;
+  email: string | null;
+  telefone: string | null;
+  dataNascimento?: Date | null;
+};
 
 export async function POST(request: Request) {
   try {
@@ -12,44 +26,46 @@ export async function POST(request: Request) {
     const grupo = body.grupo as GroupType;
 
     if (!grupo || !validGroups.includes(grupo)) {
-      return NextResponse.json(
-        { success: false, error: 'Grupo inválido' },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Grupo inválido" }, { status: 400 });
     }
 
-    let members: any[] = [];
+    let members: MemberMini[] = [];
 
-    if (grupo === 'aniversario') {
-      // Get today's birthday members
+    if (grupo === "aniversario") {
+      // ✅ Mongo: pega ativos com dataNascimento e filtra por mês/dia
       const today = new Date();
       const currentMonth = today.getMonth() + 1;
       const currentDay = today.getDate();
 
-      members = await prisma.$queryRaw`
-        SELECT id, nome, email, telefone FROM members 
-        WHERE ativo = true 
-        AND EXTRACT(MONTH FROM "dataNascimento") = ${currentMonth}
-        AND EXTRACT(DAY FROM "dataNascimento") = ${currentDay}
-      `;
+      const birthdayCandidates = (await prisma.member.findMany({
+        where: { ativo: true, dataNascimento: { not: null } },
+        select: { id: true, nome: true, email: true, telefone: true, dataNascimento: true },
+      })) as Array<MemberMini & { dataNascimento: Date | null }>;
+
+      members = birthdayCandidates.filter((m) => {
+        if (!m.dataNascimento) return false;
+        const d = new Date(m.dataNascimento);
+        const month = d.getUTCMonth() + 1;
+        const day = d.getUTCDate();
+        return month === currentMonth && day === currentDay;
+      });
     } else {
-      // Get members by group
-      const groupFieldMap: Record<string, string> = {
-        pastoral: 'grupoPastoral',
-        devocional: 'grupoDevocional',
-        visitantes: 'grupoVisitantes',
-        membros_sumidos: 'grupoSumidos',
+      const groupFieldMap: Record<string, "grupoPastoral" | "grupoDevocional" | "grupoVisitantes" | "grupoSumidos"> = {
+        pastoral: "grupoPastoral",
+        devocional: "grupoDevocional",
+        visitantes: "grupoVisitantes",
+        membros_sumidos: "grupoSumidos",
       };
 
       const field = groupFieldMap[grupo];
       if (field) {
-        members = await prisma.member.findMany({
+        members = (await prisma.member.findMany({
           where: {
             ativo: true,
             [field]: true,
           },
           select: { id: true, nome: true, email: true, telefone: true },
-        });
+        })) as MemberMini[];
       }
     }
 
@@ -57,23 +73,21 @@ export async function POST(request: Request) {
       return NextResponse.json({
         success: true,
         data: { queued: 0 },
-        message: 'Nenhum membro encontrado para este grupo',
+        message: "Nenhum membro encontrado para este grupo",
       });
     }
 
-    // Create email logs
     await prisma.emailLog.createMany({
-      data: members.map((m) => ({
+      data: members.map((m: MemberMini) => ({
         grupo,
         membroId: m.id,
-        membroNome: m.nome ?? '',
+        membroNome: m.nome ?? "",
         membroEmail: m.email ?? null,
-        status: 'pendente',
+        status: "pendente",
         dataAgendamento: new Date(),
       })),
     });
 
-    // Update group's last send date
     await prisma.messageGroup.updateMany({
       where: { nomeGrupo: grupo },
       data: { ultimoEnvio: new Date() },
@@ -84,10 +98,7 @@ export async function POST(request: Request) {
       data: { queued: members.length },
     });
   } catch (error) {
-    console.error('Error queuing emails:', error);
-    return NextResponse.json(
-      { success: false, error: 'Erro ao enfileirar emails' },
-      { status: 500 }
-    );
+    console.error("Error queuing emails:", error);
+    return NextResponse.json({ success: false, error: "Erro ao enfileirar emails" }, { status: 500 });
   }
 }
