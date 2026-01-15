@@ -1,6 +1,11 @@
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 
+// Tipagem do body do POST
+interface SystemConfigBody {
+  automacaoAtiva: boolean;
+}
+
 // GET - Obter configuração do sistema
 export async function GET() {
   try {
@@ -34,7 +39,7 @@ export async function GET() {
 // POST - Atualizar configuração do sistema
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body: SystemConfigBody = await request.json();
     const { automacaoAtiva } = body;
 
     if (typeof automacaoAtiva !== 'boolean') {
