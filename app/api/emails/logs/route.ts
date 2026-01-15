@@ -38,7 +38,7 @@ export async function GET(request: Request) {
     ]);
 
     // Transform to match frontend
-    const transformedLogs = logs.map((l) => ({
+    const transformedLogs = logs.map((l: (typeof logs)[number]) => ({
       _id: l.id,
       grupo: l.grupo,
       membro_id: l.membroId,
