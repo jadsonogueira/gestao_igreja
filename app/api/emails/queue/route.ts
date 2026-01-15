@@ -1,8 +1,15 @@
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
-import type { GroupType } from "@/lib/types";
+
+type GroupType =
+  | "aniversario"
+  | "pastoral"
+  | "devocional"
+  | "visitantes"
+  | "membros_sumidos";
 
 const validGroups: GroupType[] = [
   "aniversario",
@@ -22,17 +29,25 @@ type MemberMini = {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
-    const grupo = body.grupo as GroupType;
+    const body: unknown = await request.json();
 
-    if (!grupo || !validGroups.includes(grupo)) {
-      return NextResponse.json({ success: false, error: "Grupo inválido" }, { status: 400 });
+    const grupo =
+      typeof body === "object" && body !== null && "grupo" in body
+        ? (body as { grupo?: unknown }).grupo
+        : undefined;
+
+    if (typeof grupo !== "string" || !validGroups.includes(grupo as GroupType)) {
+      return NextResponse.json(
+        { success: false, error: "Grupo inválido" },
+        { status: 400 }
+      );
     }
+
+    const group = grupo as GroupType;
 
     let members: MemberMini[] = [];
 
-    if (grupo === "aniversario") {
-      // ✅ Mongo: pega ativos com dataNascimento e filtra por mês/dia
+    if (group === "aniversario") {
       const today = new Date();
       const currentMonth = today.getMonth() + 1;
       const currentDay = today.getDate();
@@ -50,23 +65,22 @@ export async function POST(request: Request) {
         return month === currentMonth && day === currentDay;
       });
     } else {
-      const groupFieldMap: Record<string, "grupoPastoral" | "grupoDevocional" | "grupoVisitantes" | "grupoSumidos"> = {
+      const groupFieldMap: Record<
+        Exclude<GroupType, "aniversario">,
+        "grupoPastoral" | "grupoDevocional" | "grupoVisitantes" | "grupoSumidos"
+      > = {
         pastoral: "grupoPastoral",
         devocional: "grupoDevocional",
         visitantes: "grupoVisitantes",
         membros_sumidos: "grupoSumidos",
       };
 
-      const field = groupFieldMap[grupo];
-      if (field) {
-        members = (await prisma.member.findMany({
-          where: {
-            ativo: true,
-            [field]: true,
-          },
-          select: { id: true, nome: true, email: true, telefone: true },
-        })) as MemberMini[];
-      }
+      const field = groupFieldMap[group as Exclude<GroupType, "aniversario">];
+
+      members = (await prisma.member.findMany({
+        where: { ativo: true, [field]: true },
+        select: { id: true, nome: true, email: true, telefone: true },
+      })) as MemberMini[];
     }
 
     if (members.length === 0) {
@@ -79,7 +93,7 @@ export async function POST(request: Request) {
 
     await prisma.emailLog.createMany({
       data: members.map((m: MemberMini) => ({
-        grupo,
+        grupo: group,
         membroId: m.id,
         membroNome: m.nome ?? "",
         membroEmail: m.email ?? null,
@@ -89,7 +103,7 @@ export async function POST(request: Request) {
     });
 
     await prisma.messageGroup.updateMany({
-      where: { nomeGrupo: grupo },
+      where: { nomeGrupo: group },
       data: { ultimoEnvio: new Date() },
     });
 
@@ -99,6 +113,9 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("Error queuing emails:", error);
-    return NextResponse.json({ success: false, error: "Erro ao enfileirar emails" }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: "Erro ao enfileirar emails" },
+      { status: 500 }
+    );
   }
 }
