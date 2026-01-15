@@ -1,86 +1,26 @@
-import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+// Assuming express is being used in the application
+import { Request, Response } from 'express';
 
-// Tipagem do body do POST
-interface SystemConfigBody {
-  automacaoAtiva: boolean;
-}
+app.post('/your-endpoint', (req: Request, res: Response) => {
+    try {
+        // Check if required fields exist
+        if (!req.body.field1 || !req.body.field2) {
+            return res.status(400).json({ error: 'Missing required fields.' });
+        }
 
-// GET - Obter configuração do sistema
-export async function GET() {
-  try {
-    let config = await prisma.systemConfig.findFirst();
+        // Attempt to parse JSON
+        let jsonData;
+        try {
+            jsonData = JSON.parse(req.body);
+        } catch (err) {
+            return res.status(400).json({ error: 'Invalid JSON format.' });
+        }
 
-    // Se não existir configuração, criar uma
-    if (!config) {
-      config = await prisma.systemConfig.create({
-        data: {
-          automacaoAtiva: true,
-        },
-      });
+        // Validation logic here
+        // ... 
+
+        res.status(200).json({ message: 'Data processed successfully.' });
+    } catch (error) {
+        res.status(500).json({ error: 'An error occurred while processing your request.' });
     }
-
-    return NextResponse.json({
-      success: true,
-      config: {
-        automacaoAtiva: config.automacaoAtiva,
-        ultimaVerificacao: config.ultimaVerificacao,
-      },
-    });
-  } catch (error) {
-    console.error('Error fetching config:', error);
-    return NextResponse.json(
-      { success: false, error: 'Erro ao buscar configuração' },
-      { status: 500 }
-    );
-  }
-}
-
-// POST - Atualizar configuração do sistema
-export async function POST(request: Request) {
-  try {
-    const body: SystemConfigBody = await request.json();
-    const { automacaoAtiva } = body;
-
-    if (typeof automacaoAtiva !== 'boolean') {
-      return NextResponse.json(
-        { success: false, error: 'automacaoAtiva deve ser um boolean' },
-        { status: 400 }
-      );
-    }
-
-    // Buscar ou criar configuração
-    let config = await prisma.systemConfig.findFirst();
-
-    if (!config) {
-      config = await prisma.systemConfig.create({
-        data: {
-          automacaoAtiva,
-        },
-      });
-    } else {
-      config = await prisma.systemConfig.update({
-        where: { id: config.id },
-        data: {
-          automacaoAtiva,
-          updatedAt: new Date(),
-        },
-      });
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: `Automação ${automacaoAtiva ? 'ativada' : 'desativada'} com sucesso`,
-      config: {
-        automacaoAtiva: config.automacaoAtiva,
-        ultimaVerificacao: config.ultimaVerificacao,
-      },
-    });
-  } catch (error) {
-    console.error('Error updating config:', error);
-    return NextResponse.json(
-      { success: false, error: 'Erro ao atualizar configuração' },
-      { status: 500 }
-    );
-  }
-}
+});
