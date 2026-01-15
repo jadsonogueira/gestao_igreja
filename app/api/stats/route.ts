@@ -45,13 +45,16 @@ export async function GET() {
     const currentMonth = today.getMonth() + 1;
     const currentDay = today.getDate();
 
-    const aniversariantes = membersWithBirth.reduce((acc, m) => {
-      if (!m.dataNascimento) return acc;
-      const d = new Date(m.dataNascimento);
-      const month = d.getUTCMonth() + 1;
-      const day = d.getUTCDate();
-      return month === currentMonth && day === currentDay ? acc + 1 : acc;
-    }, 0);
+    const aniversariantes = membersWithBirth.reduce<number>((acc, m) => {
+  if (!m.dataNascimento) return acc;
+
+  const d = new Date(m.dataNascimento);
+  const month = d.getUTCMonth() + 1;
+  const day = d.getUTCDate();
+
+  return month === currentMonth && day === currentDay ? acc + 1 : acc;
+}, 0);
+
 
     const proximosAniversariantes: UpcomingBirthdayItem[] = membersWithBirth
       .map((m): (UpcomingBirthdayItem & { daysUntil: number }) | null => {
