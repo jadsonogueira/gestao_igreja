@@ -1,4 +1,3 @@
-// app/api/stats/route.ts
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
@@ -9,43 +8,6 @@ type UpcomingBirthdayItem = {
   nome: string;
   data_nascimento: Date;
 };
-
-type GroupWithCounts = {
-  _id: string;
-  nome_grupo: string;
-  mensagem_padrao: string | null;
-  frequencia_envio: string | null;
-  dia_semana: number | null;
-  dia_mes: number | null;
-  hora_envio: number | null;
-  minuto_envio: number;
-  flyer_url: string | null;
-  ultimo_envio: Date | null;
-  proximo_envio: Date | null;
-  ativo: boolean;
-  memberCount: number;
-};
-
-type StatsResponse =
-  | {
-      success: true;
-      data: {
-        totalMembers: number;
-        activeMembers: number;
-        emailsToday: number;
-        pendingEmails: number;
-        membersByGroup: {
-          aniversario: number;
-          pastoral: number;
-          devocional: number;
-          visitantes: number;
-          membros_sumidos: number;
-        };
-        proximosAniversariantes: UpcomingBirthdayItem[];
-        groups: GroupWithCounts[];
-      };
-    }
-  | { success: false; error: string };
 
 export async function GET() {
   try {
@@ -74,33 +36,24 @@ export async function GET() {
       prisma.member.count({ where: { grupoSumidos: true, ativo: true } }),
     ]);
 
+    // ✅ Mongo-friendly: pega membros ativos com dataNascimento e calcula em memória
+    const membersWithBirth = await prisma.member.findMany({
+      where: { ativo: true, dataNascimento: { not: null } },
+      select: { id: true, nome: true, dataNascimento: true },
+    });
+
     const currentMonth = today.getMonth() + 1;
     const currentDay = today.getDate();
 
-    let aniversariantes = 0;
+    const aniversariantes = membersWithBirth.reduce((acc, m) => {
+      if (!m.dataNascimento) return acc;
+      const d = new Date(m.dataNascimento);
+      const month = d.getUTCMonth() + 1;
+      const day = d.getUTCDate();
+      return month === currentMonth && day === currentDay ? acc + 1 : acc;
+    }, 0);
 
-    // ✅ Postgres/SQL
-    const birthdayMembers = await prisma.$queryRaw<Array<{ count: bigint }>>`
-      SELECT COUNT(*) as count FROM members
-      WHERE ativo = true
-      AND EXTRACT(MONTH FROM "dataNascimento") = ${currentMonth}
-      AND EXTRACT(DAY FROM "dataNascimento") = ${currentDay}
-    `;
-    aniversariantes = Number(birthdayMembers[0]?.count ?? 0);
-
-    const upcomingBirthdays = await prisma.member.findMany({
-      where: {
-        ativo: true,
-        dataNascimento: { not: null },
-      },
-      select: {
-        id: true,
-        nome: true,
-        dataNascimento: true,
-      },
-    });
-
-    const proximosAniversariantes: UpcomingBirthdayItem[] = upcomingBirthdays
+    const proximosAniversariantes: UpcomingBirthdayItem[] = membersWithBirth
       .map((m): (UpcomingBirthdayItem & { daysUntil: number }) | null => {
         if (!m.dataNascimento) return null;
 
@@ -124,7 +77,10 @@ export async function GET() {
           daysUntil: diffDays,
         };
       })
-      .filter((m): m is UpcomingBirthdayItem & { daysUntil: number } => !!m && m.daysUntil >= 0 && m.daysUntil <= 30)
+      .filter(
+        (m): m is UpcomingBirthdayItem & { daysUntil: number } =>
+          m !== null && m.daysUntil >= 0 && m.daysUntil <= 30
+      )
       .sort((a, b) => a.daysUntil - b.daysUntil)
       .slice(0, 10)
       .map(({ daysUntil, ...rest }) => rest);
@@ -133,7 +89,7 @@ export async function GET() {
       orderBy: { nomeGrupo: "asc" },
     });
 
-    const groupsWithCounts: GroupWithCounts[] = allGroups.map((g) => {
+    const groupsWithCounts = allGroups.map((g) => {
       let memberCount = 0;
 
       switch (g.nomeGrupo) {
@@ -171,7 +127,7 @@ export async function GET() {
       };
     });
 
-    const payload: StatsResponse = {
+    return NextResponse.json({
       success: true,
       data: {
         totalMembers,
@@ -188,13 +144,11 @@ export async function GET() {
         proximosAniversariantes,
         groups: groupsWithCounts,
       },
-    };
-
-    return NextResponse.json(payload);
+    });
   } catch (error) {
     console.error("Error fetching stats:", error);
     return NextResponse.json(
-      { success: false, error: "Erro ao buscar estatísticas" } satisfies StatsResponse,
+      { success: false, error: "Erro ao buscar estatísticas" },
       { status: 500 }
     );
   }
