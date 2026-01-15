@@ -9,6 +9,12 @@ type UpcomingBirthdayItem = {
   data_nascimento: Date;
 };
 
+type MemberBirth = {
+  id: string;
+  nome: string;
+  dataNascimento: Date | null;
+};
+
 export async function GET() {
   try {
     const today = new Date();
@@ -37,27 +43,27 @@ export async function GET() {
     ]);
 
     // ✅ Mongo-friendly: pega membros ativos com dataNascimento e calcula em memória
-    const membersWithBirth = await prisma.member.findMany({
+    const membersWithBirth = (await prisma.member.findMany({
       where: { ativo: true, dataNascimento: { not: null } },
       select: { id: true, nome: true, dataNascimento: true },
-    });
+    })) as MemberBirth[];
 
     const currentMonth = today.getMonth() + 1;
     const currentDay = today.getDate();
 
-    const aniversariantes = membersWithBirth.reduce<number>((acc, m) => {
-  if (!m.dataNascimento) return acc;
+    // ✅ Sem reduce<number> (evita "Untyped function calls may not accept type arguments")
+    const aniversariantes = membersWithBirth.reduce((acc: number, m: MemberBirth) => {
+      if (!m.dataNascimento) return acc;
 
-  const d = new Date(m.dataNascimento);
-  const month = d.getUTCMonth() + 1;
-  const day = d.getUTCDate();
+      const d = new Date(m.dataNascimento);
+      const month = d.getUTCMonth() + 1;
+      const day = d.getUTCDate();
 
-  return month === currentMonth && day === currentDay ? acc + 1 : acc;
-}, 0);
-
+      return month === currentMonth && day === currentDay ? acc + 1 : acc;
+    }, 0);
 
     const proximosAniversariantes: UpcomingBirthdayItem[] = membersWithBirth
-      .map((m): (UpcomingBirthdayItem & { daysUntil: number }) | null => {
+      .map((m: MemberBirth): (UpcomingBirthdayItem & { daysUntil: number }) | null => {
         if (!m.dataNascimento) return null;
 
         const bday = new Date(m.dataNascimento);
