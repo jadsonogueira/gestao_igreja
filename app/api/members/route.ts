@@ -55,7 +55,7 @@ export async function GET(request: Request) {
     ]);
 
     // Transform to match frontend expectations
-    const transformedMembers = members.map((m) => ({
+    const transformedMembers = members.map((m: (typeof members)[number]) => ({
       _id: m.id,
       nome: m.nome,
       email: m.email,
