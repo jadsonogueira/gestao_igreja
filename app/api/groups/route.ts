@@ -38,7 +38,7 @@ export async function GET() {
     }
 
     // Transform to match frontend expectations
-    const transformedGroups = groups.map((g) => ({
+    const transformedGroups = groups.map((g: (typeof groups)[number]) => ({
       _id: g.id,
       nome_grupo: g.nomeGrupo,
       mensagem_padrao: g.mensagemPadrao,
