@@ -55,15 +55,29 @@ export async function POST() {
     });
 
     // Send trigger email com flyerUrl para anexo
-    const result = await sendTriggerEmail(
-      pendingEmail.grupo as GroupType,
-      member.nome ?? '',
-      member.email ?? '',
-      member.telefone ?? '',
-      agendamento,
-      group?.mensagemPadrao ?? '',
-      group?.flyerUrl // URL do panfleto para anexar ao email
-    );
+ const automationTo = process.env.AUTOMATION_EMAIL_TO;
+
+if (!automationTo) {
+  await prisma.emailLog.update({
+    where: { id: pendingEmail.id },
+    data: { status: 'erro', erroMensagem: 'AUTOMATION_EMAIL_TO não configurado' },
+  });
+
+  return NextResponse.json(
+    { success: false, error: 'AUTOMATION_EMAIL_TO não configurado' },
+    { status: 500 }
+  );
+}
+
+const result = await sendTriggerEmail(
+  pendingEmail.grupo as GroupType,
+  member.nome ?? '',
+  automationTo, // ✅ destino fixo
+  member.telefone ?? '',
+  agendamento,
+  group?.mensagemPadrao ?? '',
+  group?.flyerUrl
+);
 
     if (result.success) {
       await prisma.emailLog.update({
