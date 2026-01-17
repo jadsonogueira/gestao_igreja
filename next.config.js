@@ -13,7 +13,18 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
-  images: { unoptimized: true },
+  images: {
+    unoptimized: true,
+    // Permite preview de imagens vindas do S3 (flyers)
+    // (Sem isso o next/image bloqueia o host remoto)
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '**.amazonaws.com',
+        pathname: '/**',
+      },
+    ],
+  },
 };
 
 module.exports = nextConfig;
