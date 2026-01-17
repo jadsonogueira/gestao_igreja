@@ -4,30 +4,33 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
 
-const APP_TIMEZONE = process.env.APP_TIMEZONE ?? 'America/Toronto';
+const APP_TIMEZONE = process.env.APP_TIMEZONE ?? "America/Toronto";
 
-function getMonthDayInTimeZone(date: Date) {
-  const parts = new Intl.DateTimeFormat('en-US', {
+function getTodayMonthDayInTimeZone(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: APP_TIMEZONE,
-    month: '2-digit',
-    day: '2-digit',
+    month: "2-digit",
+    day: "2-digit",
   }).formatToParts(date);
 
-  const month = Number(parts.find((p) => p.type === 'month')?.value ?? '0');
-  const day = Number(parts.find((p) => p.type === 'day')?.value ?? '0');
+  const month = Number(parts.find((p) => p.type === "month")?.value ?? "0");
+  const day = Number(parts.find((p) => p.type === "day")?.value ?? "0");
 
   return { month, day };
 }
 
-/* =======================
-   TIPOS
-======================= */
+function getBirthMonthDayUTC(dateInput: Date | string | null | undefined) {
+  if (!dateInput) return null;
 
-type UpcomingBirthdayItem = {
-  _id: string;
-  nome: string;
-  data_nascimento: Date;
-};
+  const d = typeof dateInput === "string" ? new Date(dateInput) : new Date(dateInput);
+
+  if (Number.isNaN(d.getTime())) return null;
+
+  return {
+    month: d.getUTCMonth() + 1,
+    day: d.getUTCDate(),
+  };
+}
 
 type MemberBirth = {
   id: string;
@@ -50,20 +53,14 @@ type MessageGroupRow = {
   ativo: boolean;
 };
 
-/* =======================
-   HANDLER
-======================= */
-
 export async function GET() {
   try {
-    /* Datas base */
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    /* Totais principais */
     const [totalMembers, activeMembers, emailsToday, pendingEmails] =
       await Promise.all([
         prisma.member.count(),
@@ -77,7 +74,6 @@ export async function GET() {
         prisma.emailLog.count({ where: { status: "pendente" } }),
       ]);
 
-    /* Contagem por grupos fixos */
     const [pastoral, devocional, visitantes, sumidos] = await Promise.all([
       prisma.member.count({ where: { grupoPastoral: true, ativo: true } }),
       prisma.member.count({ where: { grupoDevocional: true, ativo: true } }),
@@ -85,86 +81,33 @@ export async function GET() {
       prisma.member.count({ where: { grupoSumidos: true, ativo: true } }),
     ]);
 
-    /* Membros com data de nascimento (Mongo-friendly) */
     const membersWithBirth = (await prisma.member.findMany({
       where: { ativo: true, dataNascimento: { not: null } },
       select: { id: true, nome: true, dataNascimento: true },
     })) as MemberBirth[];
 
-    const { month: currentMonth, day: currentDay } = getMonthDayInTimeZone(new Date());
+    // ✅ HOJE em Toronto
+    const { month: currentMonth, day: currentDay } = getTodayMonthDayInTimeZone(new Date());
 
-    /* Aniversariantes de hoje */
-    const aniversariantes = membersWithBirth.reduce(
-      (acc: number, m: MemberBirth) => {
-        if (!m.dataNascimento) return acc;
+    // ✅ NASCIMENTO em UTC
+    const aniversariantesHoje = membersWithBirth.reduce((acc, m) => {
+      const md = getBirthMonthDayUTC(m.dataNascimento ?? null);
+      if (!md) return acc;
+      return md.month === currentMonth && md.day === currentDay ? acc + 1 : acc;
+    }, 0);
 
-        const { month, day } = getMonthDayInTimeZone(new Date(m.dataNascimento));
-
-        return month === currentMonth && day === currentDay ? acc + 1 : acc;
-      },
-      0
-    );
-
-    /* Próximos aniversariantes */
-    const proximosAniversariantes: UpcomingBirthdayItem[] = membersWithBirth
-      .map(
-        (
-          m: MemberBirth
-        ): (UpcomingBirthdayItem & { daysUntil: number }) | null => {
-          if (!m.dataNascimento) return null;
-
-          // Para proximos aniversariantes, mantemos o cálculo por ano/dias usando o Date padrão.
-          // (O filtro de "aniversariantes de hoje" acima já usa o timezone da aplicação.)
-          const bday = new Date(m.dataNascimento);
-          const bdayMonth = bday.getUTCMonth();
-          const bdayDay = bday.getUTCDate();
-
-          let thisYearBday = new Date(
-            today.getFullYear(),
-            bdayMonth,
-            bdayDay
-          );
-
-          if (thisYearBday < today) {
-            thisYearBday = new Date(
-              today.getFullYear() + 1,
-              bdayMonth,
-              bdayDay
-            );
-          }
-
-          const diffTime = thisYearBday.getTime() - today.getTime();
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-          return {
-            _id: m.id,
-            nome: m.nome,
-            data_nascimento: m.dataNascimento,
-            daysUntil: diffDays,
-          };
-        }
-      )
-      .filter(
-        (
-          m
-        ): m is UpcomingBirthdayItem & { daysUntil: number } =>
-          m !== null && m.daysUntil >= 0 && m.daysUntil <= 30
-      )
-      .sort((a, b) => a.daysUntil - b.daysUntil)
-      .slice(0, 10)
-      .map(({ daysUntil, ...rest }) => rest);
-
-    /* Grupos de mensagens */
     const allGroups = (await prisma.messageGroup.findMany({
       orderBy: { nomeGrupo: "asc" },
     })) as MessageGroupRow[];
 
-    const groupsWithCounts = allGroups.map((g: MessageGroupRow) => {
+    const groupsWithCounts = allGroups.map((g) => {
       let memberCount = 0;
+      let todayCount: number | undefined = undefined;
 
       switch (g.nomeGrupo) {
         case "aniversario":
-          memberCount = aniversariantes;
+          memberCount = activeMembers;
+          todayCount = aniversariantesHoje;
           break;
         case "pastoral":
           memberCount = pastoral;
@@ -194,6 +137,7 @@ export async function GET() {
         proximo_envio: g.proximoEnvio,
         ativo: g.ativo,
         memberCount,
+        todayCount,
       };
     });
 
@@ -205,13 +149,12 @@ export async function GET() {
         emailsToday,
         pendingEmails,
         membersByGroup: {
-          aniversario: aniversariantes,
+          aniversario: aniversariantesHoje,
           pastoral,
           devocional,
           visitantes,
           membros_sumidos: sumidos,
         },
-        proximosAniversariantes,
         groups: groupsWithCounts,
       },
     });
