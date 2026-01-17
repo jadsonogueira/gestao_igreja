@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Upload, Save, Image as ImageIcon, MessageSquare, Calendar, Clock, Settings, RefreshCw } from 'lucide-react';
+import { Upload, Save, Image as ImageIcon, MessageSquare, Settings, RefreshCw } from 'lucide-react';
 import Image from 'next/image';
 import { toast } from 'react-hot-toast';
 
@@ -52,30 +52,45 @@ export default function GruposPage() {
     try {
       setLoading(true);
       const response = await fetch('/api/groups');
-      const data = await response.json();
-      if (data?.success) {
-        setGroups(data?.groups ?? []);
-        if (!selectedGroup && (data?.groups?.length ?? 0) > 0) {
-          setSelectedGroup(data.groups[0]);
-          setFormData({
-            mensagem_padrao: data.groups[0]?.mensagem_padrao ?? '',
-            frequencia_envio:
-              data.groups[0]?.nome_grupo === 'aniversario'
-                ? 'aniversario'
-                : (data.groups[0]?.frequencia_envio ?? 'mensal'),
-            dia_semana: data.groups[0]?.dia_semana ?? 1,
-            dia_mes: data.groups[0]?.dia_mes ?? 1,
-            hora_envio: data.groups[0]?.hora_envio ?? 9,
-            minuto_envio: data.groups[0]?.minuto_envio ?? 0,
-            flyer_url: data.groups[0]?.flyer_url ?? '',
-          });
-        }
-      } else {
-        toast.error(data?.error ?? 'Erro ao carregar grupos');
+      const payload = await response.json();
+
+      if (!payload?.success) {
+        toast.error(payload?.error ?? 'Erro ao carregar grupos');
+        setGroups([]);
+        setSelectedGroup(null);
+        return;
+      }
+
+      // ✅ Backend retorna { success: true, data: [...] }
+      // Mantive fallback para { groups: [...] } por segurança.
+      const list: MessageGroup[] = payload?.data ?? payload?.groups ?? [];
+
+      setGroups(list);
+
+      // Se não tem grupo selecionado, seleciona o primeiro automaticamente
+      if (!selectedGroup && list.length > 0) {
+        const g = list[0];
+        setSelectedGroup(g);
+        setFormData({
+          mensagem_padrao: g?.mensagem_padrao ?? '',
+          frequencia_envio: g?.nome_grupo === 'aniversario' ? 'aniversario' : (g?.frequencia_envio ?? 'mensal'),
+          dia_semana: g?.dia_semana ?? 1,
+          dia_mes: g?.dia_mes ?? 1,
+          hora_envio: g?.hora_envio ?? 9,
+          minuto_envio: g?.minuto_envio ?? 0,
+          flyer_url: g?.flyer_url ?? '',
+        });
+      }
+
+      // Se lista ficou vazia e havia um selecionado, limpa
+      if (list.length === 0) {
+        setSelectedGroup(null);
       }
     } catch (error) {
       console.error(error);
       toast.error('Erro ao carregar grupos');
+      setGroups([]);
+      setSelectedGroup(null);
     } finally {
       setLoading(false);
     }
@@ -120,46 +135,39 @@ export default function GruposPage() {
         }),
       });
 
-      const presignedData = await presignedResponse?.json();
+      const presignedData = await presignedResponse.json();
 
       if (!presignedData?.success) {
-        throw new Error('Erro ao obter URL de upload');
+        throw new Error(presignedData?.error ?? 'Erro ao obter URL de upload');
       }
 
-      const uploadHeaders: Record<string, string> = {
-        'Content-Type': file?.type ?? 'image/jpeg',
-      };
-      // OBS:
-      // Não envie Content-Disposition aqui. Quando isso é assinado como header obrigatório,
-      // o objeto pode ficar com disposition de download e quebrar o preview no browser.
-
-      const uploadResponse = await fetch(presignedData?.uploadUrl, {
+      const uploadResponse = await fetch(presignedData.uploadUrl, {
         method: 'PUT',
-        headers: uploadHeaders,
+        headers: { 'Content-Type': file?.type ?? 'image/jpeg' },
         body: file,
       });
 
-      if (!uploadResponse?.ok) {
+      if (!uploadResponse.ok) {
         throw new Error('Erro ao fazer upload do arquivo');
       }
 
       const urlResponse = await fetch(
-        `/api/upload?path=${encodeURIComponent(presignedData?.cloud_storage_path ?? '')}&isPublic=true`
+        `/api/upload?path=${encodeURIComponent(presignedData.cloud_storage_path)}&isPublic=true`
       );
-      const urlData = await urlResponse?.json();
+      const urlData = await urlResponse.json();
 
       if (urlData?.success) {
-        setFormData((prev) => ({ ...prev, flyer_url: urlData?.url ?? '' }));
+        setFormData((prev) => ({ ...prev, flyer_url: urlData.url ?? '' }));
         toast.success('Flyer enviado com sucesso!');
+      } else {
+        throw new Error(urlData?.error ?? 'Erro ao obter URL pública');
       }
     } catch (error) {
       console.error('Error uploading file:', error);
       toast.error('Erro ao fazer upload do flyer');
     } finally {
       setUploading(false);
-      if (fileInputRef?.current) {
-        fileInputRef.current.value = '';
-      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
@@ -174,7 +182,7 @@ export default function GruposPage() {
         body: JSON.stringify(formData),
       });
 
-      const data = await response?.json();
+      const data = await response.json();
 
       if (data?.success) {
         toast.success('Configurações salvas!');
@@ -194,43 +202,41 @@ export default function GruposPage() {
     const base = [
       { value: 'mensal', label: 'Mensal' },
       { value: 'semanal', label: 'Semanal' },
-      { value: 'diario', label: 'Diário' },
+      // ✅ Backend usa "diaria"
+      { value: 'diaria', label: 'Diária' },
     ];
+
     if (selectedGroup?.nome_grupo === 'aniversario') {
       return [{ value: 'aniversario', label: 'Aniversário (automático)' }];
     }
+
     return base;
   }, [selectedGroup]);
 
   const getFrequencyDescription = () => {
     if (!selectedGroup) return '';
-    const freq = formData?.frequencia_envio;
+    const freq = formData.frequencia_envio;
 
-    if (selectedGroup?.nome_grupo === 'aniversario') {
+    if (selectedGroup.nome_grupo === 'aniversario') {
       return `Envio automático às ${String(formData.hora_envio).padStart(2, '0')}:${String(formData.minuto_envio).padStart(
         2,
         '0'
       )} na data do aniversário de cada membro`;
     }
 
-    if (freq === 'diario') {
-      return `Todos os dias às ${String(formData.hora_envio).padStart(2, '0')}:${String(formData.minuto_envio).padStart(
+    if (freq === 'diaria' || freq === 'diario') {
+      return `Todos os dias às ${String(formData.hora_envio).padStart(2, '0')}:${String(formData.minuto_envio).padStart(2, '0')}`;
+    }
+
+    if (freq === 'semanal') {
+      const days = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+      return `Toda ${days[formData.dia_semana]} às ${String(formData.hora_envio).padStart(2, '0')}:${String(formData.minuto_envio).padStart(
         2,
         '0'
       )}`;
     }
 
-    if (freq === 'semanal') {
-      const days = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-      return `Toda ${days[formData.dia_semana]} às ${String(formData.hora_envio).padStart(2, '0')}:${String(
-        formData.minuto_envio
-      ).padStart(2, '0')}`;
-    }
-
-    return `Todo dia ${formData.dia_mes} às ${String(formData.hora_envio).padStart(2, '0')}:${String(formData.minuto_envio).padStart(
-      2,
-      '0'
-    )}`;
+    return `Todo dia ${formData.dia_mes} às ${String(formData.hora_envio).padStart(2, '0')}:${String(formData.minuto_envio).padStart(2, '0')}`;
   };
 
   if (loading) {
@@ -344,9 +350,7 @@ export default function GruposPage() {
                           min={0}
                           max={23}
                           value={formData.hora_envio}
-                          onChange={(e) =>
-                            setFormData((prev) => ({ ...prev, hora_envio: Number(e.target.value || 0) }))
-                          }
+                          onChange={(e) => setFormData((prev) => ({ ...prev, hora_envio: Number(e.target.value || 0) }))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                         />
                       </div>
@@ -357,9 +361,7 @@ export default function GruposPage() {
                           min={0}
                           max={59}
                           value={formData.minuto_envio}
-                          onChange={(e) =>
-                            setFormData((prev) => ({ ...prev, minuto_envio: Number(e.target.value || 0) }))
-                          }
+                          onChange={(e) => setFormData((prev) => ({ ...prev, minuto_envio: Number(e.target.value || 0) }))}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                         />
                       </div>
@@ -375,9 +377,7 @@ export default function GruposPage() {
                           <label className="block text-sm font-medium text-gray-700 mb-2">Dia da Semana</label>
                           <select
                             value={formData.dia_semana}
-                            onChange={(e) =>
-                              setFormData((prev) => ({ ...prev, dia_semana: Number(e.target.value || 1) }))
-                            }
+                            onChange={(e) => setFormData((prev) => ({ ...prev, dia_semana: Number(e.target.value || 1) }))}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                           >
                             <option value={0}>Domingo</option>
@@ -397,9 +397,7 @@ export default function GruposPage() {
                             min={1}
                             max={31}
                             value={formData.dia_mes}
-                            onChange={(e) =>
-                              setFormData((prev) => ({ ...prev, dia_mes: Number(e.target.value || 1) }))
-                            }
+                            onChange={(e) => setFormData((prev) => ({ ...prev, dia_mes: Number(e.target.value || 1) }))}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                           />
                         </div>
@@ -414,34 +412,21 @@ export default function GruposPage() {
                 <div className="space-y-3">
                   <label className="block text-sm font-medium text-gray-700">Flyer</label>
                   <div className="flex gap-4">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept="image/*"
-                      onChange={handleFileUpload}
-                      className="hidden"
-                    />
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => fileInputRef?.current?.click?.()}
-                      loading={uploading}
-                    >
+                    <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+
+                    <Button type="button" variant="secondary" onClick={() => fileInputRef.current?.click?.()} loading={uploading}>
                       <Upload className="w-4 h-4" />
                       {uploading ? 'Enviando...' : 'Enviar Flyer'}
                     </Button>
-                    {formData?.flyer_url && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => setFormData((prev) => ({ ...prev, flyer_url: '' }))}
-                      >
+
+                    {formData.flyer_url && (
+                      <Button type="button" variant="ghost" onClick={() => setFormData((prev) => ({ ...prev, flyer_url: '' }))}>
                         Remover
                       </Button>
                     )}
                   </div>
 
-                  {formData?.flyer_url ? (
+                  {formData.flyer_url ? (
                     <div className="relative aspect-video w-full max-w-md rounded-lg overflow-hidden bg-gray-100">
                       <Image src={formData.flyer_url} alt="Flyer preview" fill className="object-contain" />
                     </div>
