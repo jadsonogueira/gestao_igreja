@@ -79,8 +79,8 @@ export async function GET() {
     const currentMonth = today.getMonth() + 1;
     const currentDay = today.getDate();
 
-    /* Aniversariantes de hoje */
-    const aniversariantes = membersWithBirth.reduce(
+    /* ✅ Aniversariantes de hoje */
+    const aniversariantesHoje = membersWithBirth.reduce(
       (acc: number, m: MemberBirth) => {
         if (!m.dataNascimento) return acc;
 
@@ -148,9 +148,15 @@ export async function GET() {
     const groupsWithCounts = allGroups.map((g: MessageGroupRow) => {
       let memberCount = 0;
 
+      // ✅ Novo: quantidade específica pra “aniversariantes HOJE”
+      let todayCount: number | undefined = undefined;
+
       switch (g.nomeGrupo) {
         case "aniversario":
-          memberCount = aniversariantes;
+          // ✅ Aqui é a correção principal:
+          // o grupo "aniversario" é considerado "todos os membros ativos"
+          memberCount = activeMembers;
+          todayCount = aniversariantesHoje;
           break;
         case "pastoral":
           memberCount = pastoral;
@@ -180,10 +186,10 @@ export async function GET() {
         proximo_envio: g.proximoEnvio,
         ativo: g.ativo,
         memberCount,
+        todayCount, // ✅ usado na UI de envios
       };
     });
 
-    /* Resposta */
     return NextResponse.json({
       success: true,
       data: {
@@ -192,7 +198,7 @@ export async function GET() {
         emailsToday,
         pendingEmails,
         membersByGroup: {
-          aniversario: aniversariantes,
+          aniversario: aniversariantesHoje,
           pastoral,
           devocional,
           visitantes,
