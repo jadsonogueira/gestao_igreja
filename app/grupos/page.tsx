@@ -1,40 +1,90 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Upload, Save, Image as ImageIcon, MessageSquare, Settings, RefreshCw } from 'lucide-react';
+import toast from 'react-hot-toast';
 import Image from 'next/image';
-import { toast } from 'react-hot-toast';
-
+import {
+  MessageSquare,
+  Upload,
+  Save,
+  Image as ImageIcon,
+  Cake,
+  Users,
+  BookOpen,
+  UserX,
+  Eye,
+  Clock,
+  Calendar,
+} from 'lucide-react';
 import Button from '@/components/ui/button';
+import Select from '@/components/ui/select';
+import Textarea from '@/components/ui/textarea';
+import { LoadingPage } from '@/components/ui/loading-spinner';
+import { groupLabels, frequencyLabels, diasSemanaLabels, cn } from '@/lib/utils';
 
 interface MessageGroup {
   _id: string;
   nome_grupo: string;
-  mensagem_padrao?: string;
-  frequencia_envio?: string;
-  dia_semana?: number;
-  dia_mes?: number;
-  hora_envio?: number;
-  minuto_envio?: number;
-  flyer_url?: string;
-}
-
-interface GroupFormData {
   mensagem_padrao: string;
   frequencia_envio: string;
-  dia_semana: number;
-  dia_mes: number;
+  dia_semana?: number;
+  dia_mes?: number;
   hora_envio: number;
   minuto_envio: number;
-  flyer_url: string;
+  flyer_url?: string;
+  ultimo_envio?: string;
+  proximo_envio?: string;
+  ativo: boolean;
 }
+
+const groupIcons: Record<string, any> = {
+  aniversario: Cake,
+  pastoral: Users,
+  devocional: BookOpen,
+  visitantes: Eye,
+  membros_sumidos: UserX,
+};
+
+const groupColors: Record<string, string> = {
+  aniversario: 'from-pink-500 to-rose-500',
+  pastoral: 'from-blue-500 to-indigo-500',
+  devocional: 'from-emerald-500 to-teal-500',
+  visitantes: 'from-amber-500 to-orange-500',
+  membros_sumidos: 'from-purple-500 to-violet-500',
+};
+
+// Gerar opções de horas (0-23)
+const horasOptions = Array.from({ length: 24 }, (_, i) => ({
+  value: i.toString(),
+  label: `${i.toString().padStart(2, '0')}h`,
+}));
+
+// Gerar opções de minutos (0, 15, 30, 45)
+const minutosOptions = [
+  { value: '0', label: '00 min' },
+  { value: '15', label: '15 min' },
+  { value: '30', label: '30 min' },
+  { value: '45', label: '45 min' },
+];
+
+// Gerar opções de dias do mês (1-31)
+const diasMesOptions = Array.from({ length: 31 }, (_, i) => ({
+  value: (i + 1).toString(),
+  label: `Dia ${i + 1}`,
+}));
+
+// Opções de dias da semana
+const diasSemanaOptions = Object.entries(diasSemanaLabels).map(([value, label]) => ({
+  value,
+  label,
+}));
 
 export default function GruposPage() {
   const [groups, setGroups] = useState<MessageGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedGroup, setSelectedGroup] = useState<MessageGroup | null>(null);
-  const [formData, setFormData] = useState<GroupFormData>({
+  const [formData, setFormData] = useState({
     mensagem_padrao: '',
     frequencia_envio: 'mensal',
     dia_semana: 1,
@@ -45,60 +95,7 @@ export default function GruposPage() {
   });
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const fetchGroups = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response = await fetch('/api/groups');
-      const payload = await response.json();
-
-      if (!payload?.success) {
-        toast.error(payload?.error ?? 'Erro ao carregar grupos');
-        setGroups([]);
-        setSelectedGroup(null);
-        return;
-      }
-
-      // ✅ Backend retorna { success: true, data: [...] }
-      // Mantive fallback para { groups: [...] } por segurança.
-      const list: MessageGroup[] = payload?.data ?? payload?.groups ?? [];
-
-      setGroups(list);
-
-      // Se não tem grupo selecionado, seleciona o primeiro automaticamente
-      if (!selectedGroup && list.length > 0) {
-        const g = list[0];
-        setSelectedGroup(g);
-        setFormData({
-          mensagem_padrao: g?.mensagem_padrao ?? '',
-          frequencia_envio: g?.nome_grupo === 'aniversario' ? 'aniversario' : (g?.frequencia_envio ?? 'mensal'),
-          dia_semana: g?.dia_semana ?? 1,
-          dia_mes: g?.dia_mes ?? 1,
-          hora_envio: g?.hora_envio ?? 9,
-          minuto_envio: g?.minuto_envio ?? 0,
-          flyer_url: g?.flyer_url ?? '',
-        });
-      }
-
-      // Se lista ficou vazia e havia um selecionado, limpa
-      if (list.length === 0) {
-        setSelectedGroup(null);
-      }
-    } catch (error) {
-      console.error(error);
-      toast.error('Erro ao carregar grupos');
-      setGroups([]);
-      setSelectedGroup(null);
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedGroup]);
-
-  useEffect(() => {
-    fetchGroups();
-  }, [fetchGroups]);
 
   const selectGroup = (group: MessageGroup) => {
     setSelectedGroup(group);
@@ -112,6 +109,45 @@ export default function GruposPage() {
       flyer_url: group?.flyer_url ?? '',
     });
   };
+
+  const fetchGroups = useCallback(async () => {
+    try {
+      const response = await fetch('/api/groups');
+      const data = await response?.json();
+
+      if (data?.success) {
+        // ✅ Correção: a API retorna { success: true, data: [...] }
+        const list: MessageGroup[] = data?.data ?? [];
+        setGroups(list);
+
+        // Seleciona automaticamente o primeiro se ainda não há seleção
+        if (!selectedGroup && list.length > 0) {
+          selectGroup(list[0]);
+        }
+
+        // Se a lista veio vazia, limpa a seleção
+        if (list.length === 0) {
+          setSelectedGroup(null);
+        }
+      } else {
+        toast.error(data?.error ?? 'Erro ao carregar grupos');
+        setGroups([]);
+        setSelectedGroup(null);
+      }
+    } catch (error) {
+      console.error('Error fetching groups:', error);
+      toast.error('Erro ao carregar grupos');
+      setGroups([]);
+      setSelectedGroup(null);
+    } finally {
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedGroup]);
+
+  useEffect(() => {
+    fetchGroups();
+  }, [fetchGroups]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e?.target?.files?.[0];
@@ -135,39 +171,48 @@ export default function GruposPage() {
         }),
       });
 
-      const presignedData = await presignedResponse.json();
+      const presignedData = await presignedResponse?.json();
 
       if (!presignedData?.success) {
         throw new Error(presignedData?.error ?? 'Erro ao obter URL de upload');
       }
 
-      const uploadResponse = await fetch(presignedData.uploadUrl, {
+      // ✅ Correção importante:
+      // Não envie Content-Disposition: attachment no PUT.
+      // Isso faz o browser tratar como download e pode quebrar preview.
+      const uploadHeaders: Record<string, string> = {
+        'Content-Type': file?.type ?? 'image/jpeg',
+      };
+
+      const uploadResponse = await fetch(presignedData?.uploadUrl, {
         method: 'PUT',
-        headers: { 'Content-Type': file?.type ?? 'image/jpeg' },
+        headers: uploadHeaders,
         body: file,
       });
 
-      if (!uploadResponse.ok) {
+      if (!uploadResponse?.ok) {
         throw new Error('Erro ao fazer upload do arquivo');
       }
 
       const urlResponse = await fetch(
-        `/api/upload?path=${encodeURIComponent(presignedData.cloud_storage_path)}&isPublic=true`
+        `/api/upload?path=${encodeURIComponent(presignedData?.cloud_storage_path ?? '')}&isPublic=true`
       );
-      const urlData = await urlResponse.json();
+      const urlData = await urlResponse?.json();
 
       if (urlData?.success) {
-        setFormData((prev) => ({ ...prev, flyer_url: urlData.url ?? '' }));
+        setFormData((prev) => ({ ...prev, flyer_url: urlData?.url ?? '' }));
         toast.success('Flyer enviado com sucesso!');
       } else {
-        throw new Error(urlData?.error ?? 'Erro ao obter URL pública');
+        throw new Error(urlData?.error ?? 'Erro ao obter URL do flyer');
       }
     } catch (error) {
       console.error('Error uploading file:', error);
       toast.error('Erro ao fazer upload do flyer');
     } finally {
       setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+      if (fileInputRef?.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -182,7 +227,7 @@ export default function GruposPage() {
         body: JSON.stringify(formData),
       });
 
-      const data = await response.json();
+      const data = await response?.json();
 
       if (data?.success) {
         toast.success('Configurações salvas!');
@@ -191,269 +236,265 @@ export default function GruposPage() {
         toast.error(data?.error ?? 'Erro ao salvar');
       }
     } catch (error) {
-      console.error(error);
-      toast.error('Erro ao salvar');
+      console.error('Error saving group:', error);
+      toast.error('Erro ao salvar configurações');
     } finally {
       setSaving(false);
     }
   };
 
-  const frequencyOptions = useMemo(() => {
-    const base = [
-      { value: 'mensal', label: 'Mensal' },
-      { value: 'semanal', label: 'Semanal' },
-      // ✅ Backend usa "diaria"
-      { value: 'diaria', label: 'Diária' },
-    ];
-
-    if (selectedGroup?.nome_grupo === 'aniversario') {
-      return [{ value: 'aniversario', label: 'Aniversário (automático)' }];
-    }
-
-    return base;
-  }, [selectedGroup]);
-
   const getFrequencyDescription = () => {
     if (!selectedGroup) return '';
-    const freq = formData.frequencia_envio;
+
+    const hora = formData.hora_envio.toString().padStart(2, '0');
+    const minuto = formData.minuto_envio.toString().padStart(2, '0');
+    const horario = `${hora}:${minuto}`;
 
     if (selectedGroup.nome_grupo === 'aniversario') {
-      return `Envio automático às ${String(formData.hora_envio).padStart(2, '0')}:${String(formData.minuto_envio).padStart(
-        2,
-        '0'
-      )} na data do aniversário de cada membro`;
+      return `Envio automático às ${horario} na data do aniversário de cada membro`;
     }
 
-    if (freq === 'diaria' || freq === 'diario') {
-      return `Todos os dias às ${String(formData.hora_envio).padStart(2, '0')}:${String(formData.minuto_envio).padStart(2, '0')}`;
+    switch (formData.frequencia_envio) {
+      case 'diaria':
+        return `Envio todos os dias às ${horario}`;
+      case 'semanal':
+        return `Envio toda ${diasSemanaLabels[formData.dia_semana]} às ${horario}`;
+      case 'mensal':
+        return `Envio todo dia ${formData.dia_mes} às ${horario}`;
+      default:
+        return '';
     }
-
-    if (freq === 'semanal') {
-      const days = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-      return `Toda ${days[formData.dia_semana]} às ${String(formData.hora_envio).padStart(2, '0')}:${String(formData.minuto_envio).padStart(
-        2,
-        '0'
-      )}`;
-    }
-
-    return `Todo dia ${formData.dia_mes} às ${String(formData.hora_envio).padStart(2, '0')}:${String(formData.minuto_envio).padStart(2, '0')}`;
   };
 
-  if (loading) {
-    return (
-      <div className="p-8">
-        <div className="flex items-center gap-2 text-gray-600">
-          <RefreshCw className="w-5 h-5 animate-spin" />
-          <span>Carregando grupos...</span>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <LoadingPage />;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="p-6 max-w-7xl mx-auto">
-        <div className="flex justify-between items-start mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Grupos</h1>
-            <p className="text-gray-600 mt-1">Configure mensagens, flyers e frequência de envio para cada grupo</p>
-          </div>
-          <Button variant="secondary" onClick={fetchGroups}>
-            <RefreshCw className="w-4 h-4" />
-            Atualizar
-          </Button>
-        </div>
+    <div className="space-y-6">
+      <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}>
+        <h1 className="text-3xl font-bold text-gray-900">Configuração de Grupos</h1>
+        <p className="text-gray-600 mt-1">Configure mensagens, flyers e frequência de envio para cada grupo</p>
+      </motion.div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="md:col-span-1 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
-          >
-            <div className="p-4 border-b border-gray-200 flex items-center gap-2">
-              <Settings className="w-5 h-5 text-gray-600" />
-              <h2 className="font-semibold text-gray-900">Lista de Grupos</h2>
-            </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <motion.div
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.1 }}
+          className="lg:col-span-1 space-y-3"
+        >
+          {(groups ?? [])?.map((group, index) => {
+            const Icon = groupIcons[group?.nome_grupo ?? ''] ?? MessageSquare;
+            const isSelected = selectedGroup?._id === group?._id;
 
-            <div className="divide-y divide-gray-200">
-              {(groups ?? []).map((group) => (
-                <button
-                  key={group._id}
-                  onClick={() => selectGroup(group)}
-                  className={`w-full text-left p-4 hover:bg-gray-50 transition-colors ${
-                    selectedGroup?._id === group._id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
-                  }`}
-                >
-                  <div className="font-medium text-gray-900">{group.nome_grupo}</div>
-                  <div className="text-sm text-gray-500 mt-1 flex items-center gap-1">
-                    <MessageSquare className="w-4 h-4" />
-                    {group.mensagem_padrao ? 'Mensagem configurada' : 'Sem mensagem'}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="md:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"
-          >
-            <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Settings className="w-5 h-5 text-gray-600" />
-                <h2 className="font-semibold text-gray-900">Configurações</h2>
-              </div>
-              {selectedGroup && (
-                <div className="text-sm text-gray-500">
-                  Grupo selecionado: <span className="font-medium text-gray-700">{selectedGroup.nome_grupo}</span>
-                </div>
-              )}
-            </div>
-
-            {selectedGroup ? (
-              <div className="p-6 space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Mensagem Padrão</label>
-                  <textarea
-                    value={formData.mensagem_padrao}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, mensagem_padrao: e.target.value }))}
-                    rows={5}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                    placeholder="Digite a mensagem padrão para este grupo..."
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Frequência</label>
-                    <select
-                      value={formData.frequencia_envio}
-                      onChange={(e) => setFormData((prev) => ({ ...prev, frequencia_envio: e.target.value }))}
-                      disabled={selectedGroup.nome_grupo === 'aniversario'}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none disabled:bg-gray-100"
-                    >
-                      {frequencyOptions.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">Horário</label>
-                    <div className="flex gap-2">
-                      <div className="flex-1">
-                        <input
-                          type="number"
-                          min={0}
-                          max={23}
-                          value={formData.hora_envio}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, hora_envio: Number(e.target.value || 0) }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                        />
-                      </div>
-                      <span className="self-center text-gray-500">:</span>
-                      <div className="flex-1">
-                        <input
-                          type="number"
-                          min={0}
-                          max={59}
-                          value={formData.minuto_envio}
-                          onChange={(e) => setFormData((prev) => ({ ...prev, minuto_envio: Number(e.target.value || 0) }))}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {(formData.frequencia_envio === 'semanal' || formData.frequencia_envio === 'mensal') &&
-                  selectedGroup.nome_grupo !== 'aniversario' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {formData.frequencia_envio === 'semanal' ? (
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Dia da Semana</label>
-                          <select
-                            value={formData.dia_semana}
-                            onChange={(e) => setFormData((prev) => ({ ...prev, dia_semana: Number(e.target.value || 1) }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                          >
-                            <option value={0}>Domingo</option>
-                            <option value={1}>Segunda</option>
-                            <option value={2}>Terça</option>
-                            <option value={3}>Quarta</option>
-                            <option value={4}>Quinta</option>
-                            <option value={5}>Sexta</option>
-                            <option value={6}>Sábado</option>
-                          </select>
-                        </div>
-                      ) : (
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Dia do Mês</label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={31}
-                            value={formData.dia_mes}
-                            onChange={(e) => setFormData((prev) => ({ ...prev, dia_mes: Number(e.target.value || 1) }))}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                          />
-                        </div>
-                      )}
-                    </div>
+            return (
+              <motion.button
+                key={group?._id ?? index}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.1 + index * 0.05 }}
+                onClick={() => selectGroup(group)}
+                className={cn(
+                  'w-full flex items-center gap-4 p-4 rounded-xl transition-all duration-200 text-left',
+                  isSelected ? 'bg-white shadow-lg ring-2 ring-blue-500' : 'bg-white/50 hover:bg-white hover:shadow-md'
+                )}
+              >
+                <div
+                  className={cn(
+                    'w-12 h-12 rounded-xl bg-gradient-to-br flex items-center justify-center',
+                    groupColors[group?.nome_grupo ?? ''] ?? 'from-gray-500 to-gray-600'
                   )}
+                >
+                  <Icon className="w-6 h-6 text-white" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-semibold text-gray-900">
+                    {groupLabels[group?.nome_grupo ?? ''] ?? group?.nome_grupo ?? 'Grupo'}
+                  </h3>
+                  <p className="text-sm text-gray-500 truncate">
+                    {group?.nome_grupo === 'aniversario'
+                      ? 'Na data do aniversário'
+                      : frequencyLabels[group?.frequencia_envio ?? 'mensal'] ?? 'Mensal'}
+                  </p>
+                </div>
+              </motion.button>
+            );
+          })}
+        </motion.div>
 
+        <motion.div
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ delay: 0.2 }}
+          className="lg:col-span-2 bg-white rounded-2xl p-6 shadow-lg"
+        >
+          {selectedGroup ? (
+            <div className="space-y-6">
+              <div className="flex items-center gap-4">
+                <div
+                  className={cn(
+                    'w-14 h-14 rounded-xl bg-gradient-to-br flex items-center justify-center',
+                    groupColors[selectedGroup?.nome_grupo ?? ''] ?? 'from-gray-500 to-gray-600'
+                  )}
+                >
+                  {(() => {
+                    const Icon = groupIcons[selectedGroup?.nome_grupo ?? ''] ?? MessageSquare;
+                    return <Icon className="w-7 h-7 text-white" />;
+                  })()}
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    {groupLabels[selectedGroup?.nome_grupo ?? ''] ?? selectedGroup?.nome_grupo ?? 'Grupo'}
+                  </h2>
+                  <p className="text-gray-500">
+                    {selectedGroup?.nome_grupo === 'aniversario'
+                      ? 'Envio automático para aniversariantes do dia'
+                      : 'Membros marcados manualmente'}
+                  </p>
+                </div>
+              </div>
+
+              <Textarea
+                label="Mensagem Padrão"
+                value={formData?.mensagem_padrao ?? ''}
+                onChange={(e) => setFormData((prev) => ({ ...prev, mensagem_padrao: e?.target?.value ?? '' }))}
+                placeholder="Digite a mensagem que será enviada aos membros..."
+                rows={6}
+              />
+
+              {/* Configurações de Frequência */}
+              <div className="space-y-4 p-4 bg-gray-50 rounded-xl">
+                <div className="flex items-center gap-2 text-gray-700 font-medium">
+                  <Clock className="w-5 h-5" />
+                  <span>Configuração de Frequência</span>
+                </div>
+
+                {selectedGroup?.nome_grupo === 'aniversario' ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-gray-600 flex items-center gap-2">
+                      <Calendar className="w-4 h-4" />
+                      O envio será feito automaticamente na data de aniversário de cada membro
+                    </p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <Select
+                        label="Hora"
+                        options={horasOptions}
+                        value={formData.hora_envio.toString()}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, hora_envio: parseInt(e?.target?.value ?? '9') }))
+                        }
+                      />
+                      <Select
+                        label="Minuto"
+                        options={minutosOptions}
+                        value={formData.minuto_envio.toString()}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, minuto_envio: parseInt(e?.target?.value ?? '0') }))
+                        }
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <Select
+                      label="Frequência de Envio"
+                      options={[
+                        { value: 'diaria', label: 'Diária' },
+                        { value: 'semanal', label: 'Semanal' },
+                        { value: 'mensal', label: 'Mensal' },
+                      ]}
+                      value={formData?.frequencia_envio ?? 'mensal'}
+                      onChange={(e) => setFormData((prev) => ({ ...prev, frequencia_envio: e?.target?.value ?? 'mensal' }))}
+                    />
+
+                    {formData.frequencia_envio === 'semanal' && (
+                      <Select
+                        label="Dia da Semana"
+                        options={diasSemanaOptions}
+                        value={formData.dia_semana.toString()}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, dia_semana: parseInt(e?.target?.value ?? '1') }))
+                        }
+                      />
+                    )}
+
+                    {formData.frequencia_envio === 'mensal' && (
+                      <Select
+                        label="Dia do Mês"
+                        options={diasMesOptions}
+                        value={formData.dia_mes.toString()}
+                        onChange={(e) => setFormData((prev) => ({ ...prev, dia_mes: parseInt(e?.target?.value ?? '1') }))}
+                      />
+                    )}
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <Select
+                        label="Hora"
+                        options={horasOptions}
+                        value={formData.hora_envio.toString()}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, hora_envio: parseInt(e?.target?.value ?? '9') }))
+                        }
+                      />
+                      <Select
+                        label="Minuto"
+                        options={minutosOptions}
+                        value={formData.minuto_envio.toString()}
+                        onChange={(e) =>
+                          setFormData((prev) => ({ ...prev, minuto_envio: parseInt(e?.target?.value ?? '0') }))
+                        }
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Resumo da frequência */}
                 <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
                   <p className="text-sm text-blue-700 font-medium">📅 {getFrequencyDescription()}</p>
                 </div>
+              </div>
 
-                <div className="space-y-3">
-                  <label className="block text-sm font-medium text-gray-700">Flyer</label>
-                  <div className="flex gap-4">
-                    <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
-
-                    <Button type="button" variant="secondary" onClick={() => fileInputRef.current?.click?.()} loading={uploading}>
-                      <Upload className="w-4 h-4" />
-                      {uploading ? 'Enviando...' : 'Enviar Flyer'}
+              <div className="space-y-3">
+                <label className="block text-sm font-medium text-gray-700">Flyer</label>
+                <div className="flex gap-4">
+                  <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+                  <Button type="button" variant="secondary" onClick={() => fileInputRef?.current?.click?.()} loading={uploading}>
+                    <Upload className="w-4 h-4" />
+                    {uploading ? 'Enviando...' : 'Enviar Flyer'}
+                  </Button>
+                  {formData?.flyer_url && (
+                    <Button type="button" variant="ghost" onClick={() => setFormData((prev) => ({ ...prev, flyer_url: '' }))}>
+                      Remover
                     </Button>
-
-                    {formData.flyer_url && (
-                      <Button type="button" variant="ghost" onClick={() => setFormData((prev) => ({ ...prev, flyer_url: '' }))}>
-                        Remover
-                      </Button>
-                    )}
-                  </div>
-
-                  {formData.flyer_url ? (
-                    <div className="relative aspect-video w-full max-w-md rounded-lg overflow-hidden bg-gray-100">
-                      <Image src={formData.flyer_url} alt="Flyer preview" fill className="object-contain" />
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center w-full max-w-md h-48 rounded-lg bg-gray-100 border-2 border-dashed border-gray-300">
-                      <div className="text-center text-gray-400">
-                        <ImageIcon className="w-12 h-12 mx-auto mb-2" />
-                        <p>Nenhum flyer selecionado</p>
-                      </div>
-                    </div>
                   )}
                 </div>
 
-                <div className="flex justify-end pt-4 border-t border-gray-200">
-                  <Button onClick={handleSave} loading={saving}>
-                    <Save className="w-4 h-4" />
-                    Salvar Configurações
-                  </Button>
-                </div>
+                {formData?.flyer_url ? (
+                  <div className="relative aspect-video w-full max-w-md rounded-lg overflow-hidden bg-gray-100">
+                    <Image src={formData.flyer_url} alt="Flyer preview" fill className="object-contain" />
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center w-full max-w-md h-48 rounded-lg bg-gray-100 border-2 border-dashed border-gray-300">
+                    <div className="text-center text-gray-400">
+                      <ImageIcon className="w-12 h-12 mx-auto mb-2" />
+                      <p>Nenhum flyer selecionado</p>
+                    </div>
+                  </div>
+                )}
               </div>
-            ) : (
-              <div className="flex items-center justify-center h-64 text-gray-400">
-                <p>Selecione um grupo para configurar</p>
+
+              <div className="flex justify-end pt-4 border-t border-gray-200">
+                <Button onClick={handleSave} loading={saving}>
+                  <Save className="w-4 h-4" />
+                  Salvar Configurações
+                </Button>
               </div>
-            )}
-          </motion.div>
-        </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center h-64 text-gray-400">
+              <p>Selecione um grupo para configurar</p>
+            </div>
+          )}
+        </motion.div>
       </div>
     </div>
   );
