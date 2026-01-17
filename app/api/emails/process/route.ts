@@ -54,30 +54,30 @@ export async function POST() {
       minute: '2-digit',
     });
 
-    // Send trigger email com flyerUrl para anexo
- const automationTo = process.env.AUTOMATION_EMAIL_TO;
+    // (Opcional) valida destino fixo configurado
+    const automationTo = process.env.AUTOMATION_EMAIL_TO;
 
-if (!automationTo) {
-  await prisma.emailLog.update({
-    where: { id: pendingEmail.id },
-    data: { status: 'erro', erroMensagem: 'AUTOMATION_EMAIL_TO não configurado' },
-  });
+    if (!automationTo) {
+      await prisma.emailLog.update({
+        where: { id: pendingEmail.id },
+        data: { status: 'erro', erroMensagem: 'AUTOMATION_EMAIL_TO não configurado' },
+      });
 
-  return NextResponse.json(
-    { success: false, error: 'AUTOMATION_EMAIL_TO não configurado' },
-    { status: 500 }
-  );
-}
+      return NextResponse.json(
+        { success: false, error: 'AUTOMATION_EMAIL_TO não configurado' },
+        { status: 500 }
+      );
+    }
 
-const result = await sendTriggerEmail(
-  pendingEmail.grupo as GroupType,
-  member.nome ?? '',
-  automationTo, // ✅ destino fixo
-  member.telefone ?? '',
-  agendamento,
-  group?.mensagemPadrao ?? '',
-  group?.flyerUrl
-);
+    const result = await sendTriggerEmail(
+      pendingEmail.grupo as GroupType,
+      member.nome ?? '',
+      member.email ?? '', // ✅ email real do membro (só informativo no corpo)
+      member.telefone ?? '',
+      agendamento,
+      group?.mensagemPadrao ?? '',
+      group?.flyerUrl
+    );
 
     if (result.success) {
       await prisma.emailLog.update({
