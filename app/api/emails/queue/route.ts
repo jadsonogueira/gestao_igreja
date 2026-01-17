@@ -4,6 +4,21 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
 
+const APP_TIMEZONE = process.env.APP_TIMEZONE ?? 'America/Toronto';
+
+function getMonthDayInTimeZone(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: APP_TIMEZONE,
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  const month = Number(parts.find((p) => p.type === 'month')?.value ?? '0');
+  const day = Number(parts.find((p) => p.type === 'day')?.value ?? '0');
+
+  return { month, day };
+}
+
 type GroupType =
   | "aniversario"
   | "pastoral"
@@ -49,8 +64,7 @@ export async function POST(request: Request) {
 
     if (group === "aniversario") {
       const today = new Date();
-      const currentMonth = today.getMonth() + 1;
-      const currentDay = today.getDate();
+      const { month: currentMonth, day: currentDay } = getMonthDayInTimeZone(today);
 
       const birthdayCandidates = (await prisma.member.findMany({
         where: { ativo: true, dataNascimento: { not: null } },
@@ -59,9 +73,7 @@ export async function POST(request: Request) {
 
       members = birthdayCandidates.filter((m) => {
         if (!m.dataNascimento) return false;
-        const d = new Date(m.dataNascimento);
-        const month = d.getUTCMonth() + 1;
-        const day = d.getUTCDate();
+        const { month, day } = getMonthDayInTimeZone(new Date(m.dataNascimento));
         return month === currentMonth && day === currentDay;
       });
     } else {
