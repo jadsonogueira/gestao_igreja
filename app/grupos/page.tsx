@@ -6,7 +6,7 @@ import { Upload, Save, Image as ImageIcon, MessageSquare, Calendar, Clock, Setti
 import Image from 'next/image';
 import { toast } from 'react-hot-toast';
 
-import { Button } from '@/components/ui/button';
+import Button from '@/components/ui/button';
 
 interface MessageGroup {
   _id: string;
