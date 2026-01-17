@@ -31,6 +31,9 @@ interface GroupWithCount {
   proximo_envio?: string;
   ativo: boolean;
   memberCount: number;
+
+  // ✅ novo: apenas para o grupo "aniversario"
+  todayCount?: number;
 }
 
 const groupIcons: Record<string, any> = {
@@ -130,14 +133,14 @@ export default function EnviosPage() {
 
   const startProcessingQueue = () => {
     if (processingInterval?.current) return;
-    
+
     setProcessingQueue(true);
-    
+
     const processOne = async () => {
       try {
         const response = await fetch('/api/emails/process', { method: 'POST' });
         const data = await response?.json();
-        
+
         if (data?.processed === 0) {
           stopProcessingQueue();
           toast.success('Fila de emails processada!');
@@ -194,6 +197,13 @@ export default function EnviosPage() {
         {(groups ?? [])?.map((group, index) => {
           const Icon = groupIcons[group?.nome_grupo ?? ''] ?? Send;
 
+          const isBirthdayGroup = group?.nome_grupo === 'aniversario';
+          const membersCount = group?.memberCount ?? 0;
+          const birthdayTodayCount = group?.todayCount ?? 0;
+
+          // ✅ Agora “aniversario” não fica 0 só porque não tem aniversariante hoje
+          const disableSend = membersCount === 0;
+
           return (
             <motion.div
               key={group?._id ?? index}
@@ -247,8 +257,14 @@ export default function EnviosPage() {
                   <div className="flex items-center gap-2">
                     <Users className="w-5 h-5 text-gray-400" />
                     <div>
-                      <p className="text-2xl font-bold text-gray-900">{group?.memberCount ?? 0}</p>
+                      <p className="text-2xl font-bold text-gray-900">{membersCount}</p>
                       <p className="text-xs text-gray-500">Membros</p>
+
+                      {isBirthdayGroup && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          🎂 Aniversariantes hoje: <span className="font-semibold">{birthdayTodayCount}</span>
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -276,15 +292,21 @@ export default function EnviosPage() {
                   className="w-full"
                   onClick={() => handleSendEmails(group?.nome_grupo ?? '')}
                   loading={sendingGroup === group?.nome_grupo}
-                  disabled={(group?.memberCount ?? 0) === 0}
+                  disabled={disableSend}
                 >
                   <PlayCircle className="w-4 h-4" />
                   Enviar Agora
                 </Button>
 
-                {(group?.memberCount ?? 0) === 0 && (
+                {disableSend && (
                   <p className="text-xs text-center text-gray-400">
-                    Nenhum membro neste grupo
+                    Nenhum membro cadastrado
+                  </p>
+                )}
+
+                {!disableSend && isBirthdayGroup && birthdayTodayCount === 0 && (
+                  <p className="text-xs text-center text-gray-400">
+                    Nenhum aniversariante hoje (o envio vai enfileirar 0)
                   </p>
                 )}
               </div>
