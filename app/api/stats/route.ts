@@ -4,6 +4,21 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
 
+const APP_TIMEZONE = process.env.APP_TIMEZONE ?? 'America/Toronto';
+
+function getMonthDayInTimeZone(date: Date) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: APP_TIMEZONE,
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  const month = Number(parts.find((p) => p.type === 'month')?.value ?? '0');
+  const day = Number(parts.find((p) => p.type === 'day')?.value ?? '0');
+
+  return { month, day };
+}
+
 /* =======================
    TIPOS
 ======================= */
@@ -76,17 +91,14 @@ export async function GET() {
       select: { id: true, nome: true, dataNascimento: true },
     })) as MemberBirth[];
 
-    const currentMonth = today.getMonth() + 1;
-    const currentDay = today.getDate();
+    const { month: currentMonth, day: currentDay } = getMonthDayInTimeZone(new Date());
 
-    /* ✅ Aniversariantes de hoje */
-    const aniversariantesHoje = membersWithBirth.reduce(
+    /* Aniversariantes de hoje */
+    const aniversariantes = membersWithBirth.reduce(
       (acc: number, m: MemberBirth) => {
         if (!m.dataNascimento) return acc;
 
-        const d = new Date(m.dataNascimento);
-        const month = d.getUTCMonth() + 1;
-        const day = d.getUTCDate();
+        const { month, day } = getMonthDayInTimeZone(new Date(m.dataNascimento));
 
         return month === currentMonth && day === currentDay ? acc + 1 : acc;
       },
@@ -101,6 +113,8 @@ export async function GET() {
         ): (UpcomingBirthdayItem & { daysUntil: number }) | null => {
           if (!m.dataNascimento) return null;
 
+          // Para proximos aniversariantes, mantemos o cálculo por ano/dias usando o Date padrão.
+          // (O filtro de "aniversariantes de hoje" acima já usa o timezone da aplicação.)
           const bday = new Date(m.dataNascimento);
           const bdayMonth = bday.getUTCMonth();
           const bdayDay = bday.getUTCDate();
@@ -148,15 +162,9 @@ export async function GET() {
     const groupsWithCounts = allGroups.map((g: MessageGroupRow) => {
       let memberCount = 0;
 
-      // ✅ Novo: quantidade específica pra “aniversariantes HOJE”
-      let todayCount: number | undefined = undefined;
-
       switch (g.nomeGrupo) {
         case "aniversario":
-          // ✅ Aqui é a correção principal:
-          // o grupo "aniversario" é considerado "todos os membros ativos"
-          memberCount = activeMembers;
-          todayCount = aniversariantesHoje;
+          memberCount = aniversariantes;
           break;
         case "pastoral":
           memberCount = pastoral;
@@ -186,7 +194,6 @@ export async function GET() {
         proximo_envio: g.proximoEnvio,
         ativo: g.ativo,
         memberCount,
-        todayCount, // ✅ usado na UI de envios
       };
     });
 
@@ -198,7 +205,7 @@ export async function GET() {
         emailsToday,
         pendingEmails,
         membersByGroup: {
-          aniversario: aniversariantesHoje,
+          aniversario: aniversariantes,
           pastoral,
           devocional,
           visitantes,
