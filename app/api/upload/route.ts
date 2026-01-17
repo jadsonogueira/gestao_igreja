@@ -1,5 +1,5 @@
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 import { NextResponse } from 'next/server';
 import { generatePresignedUploadUrl, getFileUrl } from '@/lib/s3';
@@ -18,27 +18,16 @@ export async function POST(request: Request) {
     const contentType = body?.contentType ?? 'image/jpeg';
     const isPublic = body?.isPublic ?? true;
 
-    const { uploadUrl, cloud_storage_path } = await generatePresignedUploadUrl(
-      fileName,
-      contentType,
-      isPublic
-    );
+    const { uploadUrl, cloud_storage_path } = await generatePresignedUploadUrl(fileName, contentType, isPublic);
 
     return NextResponse.json({
       success: true,
       uploadUrl,
       cloud_storage_path,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error generating upload URL:', error);
-
-    return NextResponse.json(
-      {
-        success: false,
-        error: error?.message ?? 'Erro ao gerar URL de upload',
-      },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: 'Erro ao gerar URL de upload' }, { status: 500 });
   }
 }
 
@@ -46,25 +35,26 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const cloud_storage_path = searchParams.get('path') ?? '';
-
-    const isPublicParam = searchParams.get('isPublic');
-    const isPublic = isPublicParam === 'true';
+    const mode = (searchParams.get('mode') ?? 'preview').toLowerCase(); // preview | download | public
 
     if (!cloud_storage_path) {
-      return NextResponse.json(
-        { success: false, error: 'Caminho não fornecido' },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: 'Caminho não fornecido' }, { status: 400 });
     }
 
-    const url = await getFileUrl(cloud_storage_path, isPublic);
+    let url: string;
+
+    if (mode === 'public') {
+      url = await getFileUrl(cloud_storage_path, { public: true });
+    } else if (mode === 'download') {
+      url = await getFileUrl(cloud_storage_path, { download: true });
+    } else {
+      // ✅ preview (inline) assinado
+      url = await getFileUrl(cloud_storage_path);
+    }
 
     return NextResponse.json({ success: true, url });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Error getting file URL:', error);
-    return NextResponse.json(
-      { success: false, error: error?.message ?? 'Erro ao obter URL do arquivo' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: 'Erro ao obter URL do arquivo' }, { status: 500 });
   }
 }
