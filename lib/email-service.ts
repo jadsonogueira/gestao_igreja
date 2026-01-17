@@ -1,5 +1,6 @@
 import type { GroupType } from "./types";
 import * as path from "path";
+import { getFileUrl } from "./s3";
 
 // Labels dos grupos para o assunto do email
 const groupSubjectLabels: Record<string, string> = {
@@ -27,53 +28,41 @@ function getRequiredEnv(name: string): string {
   return v;
 }
 
-// Função para baixar imagem e converter para base64
-async function downloadImageAsBase64(
-  url: string
-): Promise<{ content: string; filename: string; contentType: string } | null> {
+function looksLikeUrl(value: string) {
+  return /^https?:\/\//i.test(value);
+}
+
+function extractFilename(value: string) {
+  // value pode ser URL completa OU uma key do bucket (cloud_storage_path)
   try {
-    console.log("[Email] Baixando imagem:", url);
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      console.error("[Email] Erro ao baixar imagem:", response.status);
-      return null;
+    if (looksLikeUrl(value)) {
+      const urlPath = new URL(value).pathname;
+      return path.basename(urlPath) || "panfleto.png";
     }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const base64 = buffer.toString("base64");
-
-    const contentType = response.headers.get("content-type") ?? "image/png";
-
-    // Extrair nome do arquivo da URL
-    let filename = "panfleto";
-    try {
-      const urlPath = new URL(url).pathname;
-      filename = path.basename(urlPath) || "panfleto";
-    } catch {
-      // ignore
-    }
-
-    // Garantir extensão
-    if (!filename.includes(".")) {
-      const ext = contentType.split("/")[1] ?? "png";
-      filename = `panfleto.${ext}`;
-    }
-
-    console.log(
-      "[Email] Imagem baixada:",
-      filename,
-      "tamanho:",
-      buffer.length,
-      "bytes"
-    );
-
-    return { content: base64, filename, contentType };
-  } catch (error) {
-    console.error("[Email] Erro ao processar imagem:", error);
-    return null;
+  } catch {
+    // ignore
   }
+
+  const base = path.basename(value);
+  if (!base) return "panfleto.png";
+  return base.includes(".") ? base : `${base}.png`;
+}
+
+async function resolveFlyerUrl(
+  flyerUrl: string
+): Promise<{ url: string; filename: string } | null> {
+  if (!flyerUrl) return null;
+
+  // Se já veio como URL, usa direto
+  if (looksLikeUrl(flyerUrl)) {
+    return { url: flyerUrl, filename: extractFilename(flyerUrl) };
+  }
+
+  // Se veio como "cloud_storage_path" (key), gera URL
+  // Regra: se o caminho contém "public/" => URL pública, senão => URL assinada
+  const isPublic = /(^|\/)public\//.test(flyerUrl) || /public\/uploads\//.test(flyerUrl);
+  const url = await getFileUrl(flyerUrl, isPublic);
+  return { url, filename: extractFilename(flyerUrl) };
 }
 
 export async function sendTriggerEmail(
@@ -119,26 +108,22 @@ export async function sendTriggerEmail(
       </div>
     `;
 
-    // Preparar attachments se houver flyerUrl
-    const attachments: Array<{ filename: string; content: string }> = [];
+    // ✅ Anexo via URL (path) — Resend baixa e anexa
+    const attachments: Array<{ filename: string; path: string }> = [];
 
     if (flyerUrl) {
-      const imageData = await downloadImageAsBase64(flyerUrl);
-      if (imageData) {
-        attachments.push({
-          filename: imageData.filename,
-          content: imageData.content,
-        });
-        console.log("[Email] Anexo adicionado:", imageData.filename);
+      const resolved = await resolveFlyerUrl(flyerUrl);
+      if (resolved?.url) {
+        attachments.push({ filename: resolved.filename, path: resolved.url });
+        console.log("[Email] Anexo adicionado via URL:", resolved.filename);
       } else {
-        console.warn("[Email] Não foi possível anexar imagem:", flyerUrl);
+        console.warn("[Email] Não foi possível resolver flyerUrl:", flyerUrl);
       }
     }
 
-    // ✅ Enviar via Resend API
     const emailPayload: Record<string, unknown> = {
-      from, // ✅ rpa@ablchurch.ca
-      to: [automationTo], // ✅ SEMPRE para o Power Automate (msn)
+      from,
+      to: [automationTo], // ✅ SEMPRE destino fixo
       subject,
       html: htmlBody,
     };
