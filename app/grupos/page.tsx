@@ -32,7 +32,7 @@ interface MessageGroup {
   dia_mes?: number;
   hora_envio: number;
   minuto_envio: number;
-  flyer_url?: string;
+  flyer_url?: string; // ✅ vamos armazenar a CHAVE (cloud_storage_path)
   ultimo_envio?: string;
   proximo_envio?: string;
   ativo: boolean;
@@ -54,13 +54,11 @@ const groupColors: Record<string, string> = {
   membros_sumidos: 'from-purple-500 to-violet-500',
 };
 
-// Gerar opções de horas (0-23)
 const horasOptions = Array.from({ length: 24 }, (_, i) => ({
   value: i.toString(),
   label: `${i.toString().padStart(2, '0')}h`,
 }));
 
-// Gerar opções de minutos (0, 15, 30, 45)
 const minutosOptions = [
   { value: '0', label: '00 min' },
   { value: '15', label: '15 min' },
@@ -68,17 +66,19 @@ const minutosOptions = [
   { value: '45', label: '45 min' },
 ];
 
-// Gerar opções de dias do mês (1-31)
 const diasMesOptions = Array.from({ length: 31 }, (_, i) => ({
   value: (i + 1).toString(),
   label: `Dia ${i + 1}`,
 }));
 
-// Opções de dias da semana
 const diasSemanaOptions = Object.entries(diasSemanaLabels).map(([value, label]) => ({
   value,
   label,
 }));
+
+function isHttpUrl(v?: string) {
+  return !!v && (v.startsWith('http://') || v.startsWith('https://'));
+}
 
 export default function GruposPage() {
   const [groups, setGroups] = useState<MessageGroup[]>([]);
@@ -91,24 +91,59 @@ export default function GruposPage() {
     dia_mes: 1,
     hora_envio: 9,
     minuto_envio: 0,
-    flyer_url: '',
+    flyer_url: '', // ✅ salva a CHAVE (cloud_storage_path)
   });
+
+  // ✅ URL só para preview (assinada)
+  const [flyerPreviewUrl, setFlyerPreviewUrl] = useState<string>('');
+
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const selectGroup = (group: MessageGroup) => {
-    setSelectedGroup(group);
-    setFormData({
-      mensagem_padrao: group?.mensagem_padrao ?? '',
-      frequencia_envio: group?.nome_grupo === 'aniversario' ? 'aniversario' : (group?.frequencia_envio ?? 'mensal'),
-      dia_semana: group?.dia_semana ?? 1,
-      dia_mes: group?.dia_mes ?? 1,
-      hora_envio: group?.hora_envio ?? 9,
-      minuto_envio: group?.minuto_envio ?? 0,
-      flyer_url: group?.flyer_url ?? '',
-    });
-  };
+  const loadPreviewFromKey = useCallback(async (keyOrUrl: string) => {
+    try {
+      if (!keyOrUrl) {
+        setFlyerPreviewUrl('');
+        return;
+      }
+
+      // Se já for URL (casos antigos), usa direto
+      if (isHttpUrl(keyOrUrl)) {
+        setFlyerPreviewUrl(keyOrUrl);
+        return;
+      }
+
+      // Se for chave, pega URL assinada para preview
+      const res = await fetch(`/api/upload?path=${encodeURIComponent(keyOrUrl)}&mode=preview`);
+      const data = await res.json();
+      if (data?.success) setFlyerPreviewUrl(data.url);
+      else setFlyerPreviewUrl('');
+    } catch {
+      setFlyerPreviewUrl('');
+    }
+  }, []);
+
+  const selectGroup = useCallback(
+    (group: MessageGroup) => {
+      setSelectedGroup(group);
+
+      const flyerKeyOrUrl = group?.flyer_url ?? '';
+
+      setFormData({
+        mensagem_padrao: group?.mensagem_padrao ?? '',
+        frequencia_envio: group?.nome_grupo === 'aniversario' ? 'aniversario' : (group?.frequencia_envio ?? 'mensal'),
+        dia_semana: group?.dia_semana ?? 1,
+        dia_mes: group?.dia_mes ?? 1,
+        hora_envio: group?.hora_envio ?? 9,
+        minuto_envio: group?.minuto_envio ?? 0,
+        flyer_url: flyerKeyOrUrl, // ✅ salva a chave (ou URL antiga)
+      });
+
+      loadPreviewFromKey(flyerKeyOrUrl);
+    },
+    [loadPreviewFromKey]
+  );
 
   const fetchGroups = useCallback(async () => {
     try {
@@ -116,34 +151,34 @@ export default function GruposPage() {
       const data = await response?.json();
 
       if (data?.success) {
-        // ✅ Correção: a API retorna { success: true, data: [...] }
         const list: MessageGroup[] = data?.data ?? [];
         setGroups(list);
 
-        // Seleciona automaticamente o primeiro se ainda não há seleção
         if (!selectedGroup && list.length > 0) {
           selectGroup(list[0]);
         }
 
-        // Se a lista veio vazia, limpa a seleção
         if (list.length === 0) {
           setSelectedGroup(null);
+          setFlyerPreviewUrl('');
         }
       } else {
         toast.error(data?.error ?? 'Erro ao carregar grupos');
         setGroups([]);
         setSelectedGroup(null);
+        setFlyerPreviewUrl('');
       }
     } catch (error) {
       console.error('Error fetching groups:', error);
       toast.error('Erro ao carregar grupos');
       setGroups([]);
       setSelectedGroup(null);
+      setFlyerPreviewUrl('');
     } finally {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedGroup]);
+  }, [selectedGroup, selectGroup]);
 
   useEffect(() => {
     fetchGroups();
@@ -174,12 +209,9 @@ export default function GruposPage() {
       const presignedData = await presignedResponse?.json();
 
       if (!presignedData?.success) {
-        throw new Error(presignedData?.error ?? 'Erro ao obter URL de upload');
+        throw new Error('Erro ao obter URL de upload');
       }
 
-      // ✅ Correção importante:
-      // Não envie Content-Disposition: attachment no PUT.
-      // Isso faz o browser tratar como download e pode quebrar preview.
       const uploadHeaders: Record<string, string> = {
         'Content-Type': file?.type ?? 'image/jpeg',
       };
@@ -194,25 +226,27 @@ export default function GruposPage() {
         throw new Error('Erro ao fazer upload do arquivo');
       }
 
-      const urlResponse = await fetch(
-        `/api/upload?path=${encodeURIComponent(presignedData?.cloud_storage_path ?? '')}&isPublic=true`
-      );
+      // ✅ Agora guardamos a CHAVE no form (persistente)
+      const key = presignedData?.cloud_storage_path ?? '';
+      setFormData((prev) => ({ ...prev, flyer_url: key }));
+
+      // ✅ E pegamos uma URL assinada só pra preview
+      const urlResponse = await fetch(`/api/upload?path=${encodeURIComponent(key)}&mode=preview`);
       const urlData = await urlResponse?.json();
 
       if (urlData?.success) {
-        setFormData((prev) => ({ ...prev, flyer_url: urlData?.url ?? '' }));
+        setFlyerPreviewUrl(urlData?.url ?? '');
         toast.success('Flyer enviado com sucesso!');
       } else {
-        throw new Error(urlData?.error ?? 'Erro ao obter URL do flyer');
+        setFlyerPreviewUrl('');
+        toast.success('Flyer enviado (sem preview)');
       }
     } catch (error) {
       console.error('Error uploading file:', error);
       toast.error('Erro ao fazer upload do flyer');
     } finally {
       setUploading(false);
-      if (fileInputRef?.current) {
-        fileInputRef.current.value = '';
-      }
+      if (fileInputRef?.current) fileInputRef.current.value = '';
     }
   };
 
@@ -361,7 +395,6 @@ export default function GruposPage() {
                 rows={6}
               />
 
-              {/* Configurações de Frequência */}
               <div className="space-y-4 p-4 bg-gray-50 rounded-xl">
                 <div className="flex items-center gap-2 text-gray-700 font-medium">
                   <Clock className="w-5 h-5" />
@@ -447,7 +480,6 @@ export default function GruposPage() {
                   </div>
                 )}
 
-                {/* Resumo da frequência */}
                 <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-100">
                   <p className="text-sm text-blue-700 font-medium">📅 {getFrequencyDescription()}</p>
                 </div>
@@ -455,22 +487,32 @@ export default function GruposPage() {
 
               <div className="space-y-3">
                 <label className="block text-sm font-medium text-gray-700">Flyer</label>
+
                 <div className="flex gap-4">
                   <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
+
                   <Button type="button" variant="secondary" onClick={() => fileInputRef?.current?.click?.()} loading={uploading}>
                     <Upload className="w-4 h-4" />
                     {uploading ? 'Enviando...' : 'Enviar Flyer'}
                   </Button>
-                  {formData?.flyer_url && (
-                    <Button type="button" variant="ghost" onClick={() => setFormData((prev) => ({ ...prev, flyer_url: '' }))}>
+
+                  {(formData?.flyer_url || flyerPreviewUrl) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        setFormData((prev) => ({ ...prev, flyer_url: '' }));
+                        setFlyerPreviewUrl('');
+                      }}
+                    >
                       Remover
                     </Button>
                   )}
                 </div>
 
-                {formData?.flyer_url ? (
+                {flyerPreviewUrl ? (
                   <div className="relative aspect-video w-full max-w-md rounded-lg overflow-hidden bg-gray-100">
-                    <Image src={formData.flyer_url} alt="Flyer preview" fill className="object-contain" />
+                    <Image src={flyerPreviewUrl} alt="Flyer preview" fill className="object-contain" />
                   </div>
                 ) : (
                   <div className="flex items-center justify-center w-full max-w-md h-48 rounded-lg bg-gray-100 border-2 border-dashed border-gray-300">
