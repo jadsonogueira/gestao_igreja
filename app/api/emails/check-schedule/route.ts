@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
 
 const APP_TIMEZONE = process.env.APP_TIMEZONE ?? "America/Toronto";
+const DEBUG_SCHEDULE = (process.env.DEBUG_SCHEDULE ?? "false").toLowerCase() === "true";
 
 type MemberMini = {
   id: string;
@@ -15,7 +16,10 @@ type MemberMini = {
 };
 
 function normalizeFrequency(value: string | null | undefined) {
-  const v = (value ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const v = (value ?? "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
   if (v === "diario" || v === "diaria") return "diaria";
   if (v === "semanal") return "semanal";
   if (v === "mensal") return "mensal";
@@ -59,6 +63,12 @@ function getBirthMonthDayUTC(d: Date | null | undefined) {
   return { month: date.getUTCMonth() + 1, day: date.getUTCDate() };
 }
 
+function hhmm(h: number | null | undefined, m: number | null | undefined) {
+  const hh = String(h ?? 0).padStart(2, "0");
+  const mm = String(m ?? 0).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
 export async function POST() {
   try {
     // ✅ respeita automacao geral
@@ -80,9 +90,12 @@ export async function POST() {
     console.log(
       `[Schedule Check] TZ=${APP_TIMEZONE} ${now.toISOString()} | local=${nowParts.dayKey} ${String(
         nowParts.hour
-      ).padStart(2, "0")}:${String(nowParts.minute).padStart(2, "0")} | dow=${nowParts.dow}`
+      ).padStart(2, "0")}:${String(nowParts.minute).padStart(2, "0")} | dow=${nowParts.dow} | debug=${
+        DEBUG_SCHEDULE ? "on" : "off"
+      }`
     );
 
+    // ✅ busca todos os grupos ativos
     const groupsRaw = await prisma.messageGroup.findMany({
       where: { ativo: true },
     });
@@ -97,19 +110,44 @@ export async function POST() {
       ultimoEnvio: Date | null;
     }>;
 
+    if (DEBUG_SCHEDULE) {
+      console.log(
+        `[Schedule Check] grupos ativos (${groups.length}):`,
+        groups.map((g) => ({
+          nome: g.nomeGrupo,
+          freq: normalizeFrequency(g.frequenciaEnvio),
+          horario: hhmm(g.horaEnvio, g.minutoEnvio),
+          diaSemana: g.diaSemana,
+          diaMes: g.diaMes,
+          ultimoEnvio: g.ultimoEnvio ? new Date(g.ultimoEnvio).toISOString() : null,
+        }))
+      );
+    }
+
     const groupsToSend: string[] = [];
 
     for (const group of groups) {
-      if (group.horaEnvio === null) continue;
-
-      const groupHour = group.horaEnvio ?? 0;
+      const groupHour = group.horaEnvio ?? null;
       const groupMinute = group.minutoEnvio ?? 0;
+
+      // Se não tem hora, não agenda automático
+      if (groupHour === null) {
+        if (DEBUG_SCHEDULE) console.log(`[Decision] ${group.nomeGrupo} -> IGNORADO (horaEnvio=null)`);
+        continue;
+      }
 
       // ✅ catch-up do dia: se já passou do horário programado, ainda pode enviar (se não enviou hoje)
       const timeReached =
         nowParts.hour > groupHour || (nowParts.hour === groupHour && nowParts.minute >= groupMinute);
 
-      if (!timeReached) continue;
+      if (!timeReached) {
+        if (DEBUG_SCHEDULE) {
+          console.log(
+            `[Decision] ${group.nomeGrupo} -> AINDA NAO (${hhmm(groupHour, groupMinute)})`
+          );
+        }
+        continue;
+      }
 
       // ✅ evita duplicado no mesmo dia (no timezone da app)
       if (group.ultimoEnvio) {
@@ -123,21 +161,38 @@ export async function POST() {
       const freq = normalizeFrequency(group.frequenciaEnvio);
 
       let shouldSend = false;
+      let reason = "";
 
       switch (freq) {
         case "aniversario":
         case "diaria":
           shouldSend = true;
+          reason = `freq=${freq}`;
           break;
+
         case "semanal":
-          if (group.diaSemana === nowParts.dow) shouldSend = true;
+          shouldSend = group.diaSemana === nowParts.dow;
+          reason = `freq=semanal (diaSemana=${group.diaSemana} vs hoje=${nowParts.dow})`;
           break;
+
         case "mensal":
-          if (group.diaMes === nowParts.day) shouldSend = true;
+          shouldSend = group.diaMes === nowParts.day;
+          reason = `freq=mensal (diaMes=${group.diaMes} vs hoje=${nowParts.day})`;
+          break;
+
+        default:
+          shouldSend = false;
+          reason = `freq=${freq || "vazia"} (nao reconhecida)`;
           break;
       }
 
-      if (shouldSend) groupsToSend.push(group.nomeGrupo);
+      if (!shouldSend) {
+        if (DEBUG_SCHEDULE) console.log(`[Decision] ${group.nomeGrupo} -> NAO ENVIA (${reason})`);
+        continue;
+      }
+
+      if (DEBUG_SCHEDULE) console.log(`[Decision] ${group.nomeGrupo} -> ENVIAR (${reason})`);
+      groupsToSend.push(group.nomeGrupo);
     }
 
     const results: any[] = [];
@@ -161,6 +216,12 @@ export async function POST() {
             if (!md) return false;
             return md.month === currentMonth && md.day === currentDay;
           });
+
+          if (DEBUG_SCHEDULE) {
+            console.log(
+              `[Members] aniversario -> candidatos=${birthdayCandidates.length} | aniversariantesHoje=${members.length} (hoje ${currentMonth}/${currentDay})`
+            );
+          }
         } else {
           const groupFieldMap: Record<
             string,
@@ -178,6 +239,10 @@ export async function POST() {
               where: { ativo: true, [field]: true },
               select: { id: true, nome: true, email: true, telefone: true },
             })) as MemberMini[];
+          }
+
+          if (DEBUG_SCHEDULE) {
+            console.log(`[Members] ${groupName} -> field=${field ?? "N/A"} | membros=${members.length}`);
           }
         }
 
@@ -230,6 +295,9 @@ export async function POST() {
       results,
       tz: APP_TIMEZONE,
       timestamp: now.toISOString(),
+      checkedGroups: groups.length,
+      groupsToSend,
+      debug: DEBUG_SCHEDULE,
     });
   } catch (error) {
     console.error("[Schedule Check Error]:", error);
