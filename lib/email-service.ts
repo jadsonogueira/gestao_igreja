@@ -61,24 +61,19 @@ function buildAppPublicUrl(publicPath: string) {
 }
 
 async function resolveFlyerToHttpUrl(flyerUrl: string): Promise<string> {
-  // 1) Se já é URL http, ok
+  // Já é URL http
   if (looksLikeUrl(flyerUrl)) return flyerUrl;
 
-  // 2) Se é caminho do Next "public/uploads" (ou /uploads), monta URL do seu app
-  if (
-    flyerUrl.startsWith("public/uploads/") ||
-    flyerUrl.startsWith("/uploads/") ||
-    flyerUrl.startsWith("uploads/")
-  ) {
+  // Se for caminho local do app (não recomendado no Render, mas deixo por compatibilidade)
+  if (flyerUrl.startsWith("/uploads/") || flyerUrl.startsWith("uploads/")) {
     return buildAppPublicUrl(flyerUrl);
   }
 
-  // 3) Caso contrário, assume que é key do S3 e resolve via getFileUrl
+  // Todo o resto: assume que é key do S3 (inclui public/uploads/...)
   const isPublic = /(^|\/)public\//.test(flyerUrl) || /public\/uploads\//.test(flyerUrl);
-
-  // ✅ assinatura nova: getFileUrl(path, { public: true/false })
   return await getFileUrlAny(flyerUrl, { public: isPublic });
 }
+
 
 // Função para baixar imagem e converter para base64
 async function downloadImageAsBase64(
