@@ -46,23 +46,25 @@ function extractFilenameFromUrl(url: string, fallbackExt = "png") {
 }
 
 // ⚠️ Compatível com assinatura nova do getFileUrl (options object)
-// e também não quebra TS caso a assinatura mude novamente.
 const getFileUrlAny = getFileUrl as unknown as (cloudPath: string, options?: any) => Promise<string>;
 
 function buildAppPublicUrl(publicPath: string) {
-  const base = getRequiredEnv("BASE_URL"); // ex: https://gestao-igreja-svo6.onrender.com
+  // ✅ precisa existir no Render:
+  // BASE_URL=https://gestao-igreja-svo6.onrender.com
+  const base = getRequiredEnv("BASE_URL");
+
   const normalized = publicPath
     .replace(/^public\//, "") // "public/uploads/x.jpg" -> "uploads/x.jpg"
-    .replace(/^\//, "");      // "/uploads/x.jpg" -> "uploads/x.jpg"
+    .replace(/^\//, ""); // "/uploads/x.jpg" -> "uploads/x.jpg"
 
   return new URL(`/${normalized}`, base).toString(); // => https://.../uploads/x.jpg
 }
 
 async function resolveFlyerToHttpUrl(flyerUrl: string): Promise<string> {
-  // Se já é URL http, ok
+  // 1) Se já é URL http, ok
   if (looksLikeUrl(flyerUrl)) return flyerUrl;
 
-  // ✅ Se é arquivo do Next public (public/uploads ou /uploads ou uploads)
+  // 2) Se é caminho do Next "public/uploads" (ou /uploads), monta URL do seu app
   if (
     flyerUrl.startsWith("public/uploads/") ||
     flyerUrl.startsWith("/uploads/") ||
@@ -71,7 +73,7 @@ async function resolveFlyerToHttpUrl(flyerUrl: string): Promise<string> {
     return buildAppPublicUrl(flyerUrl);
   }
 
-  // Senão, trata como key do bucket
+  // 3) Caso contrário, assume que é key do S3 e resolve via getFileUrl
   const isPublic = /(^|\/)public\//.test(flyerUrl) || /public\/uploads\//.test(flyerUrl);
 
   // ✅ assinatura nova: getFileUrl(path, { public: true/false })
@@ -143,7 +145,6 @@ export async function sendTriggerEmail(
       </div>
     `;
 
-    // Preparar attachments se houver flyerUrl
     const attachments: Array<{ filename: string; content: string; content_type?: string }> = [];
 
     if (flyerUrl) {
@@ -165,7 +166,7 @@ export async function sendTriggerEmail(
 
     const emailPayload: Record<string, unknown> = {
       from,
-      to: [automationTo],
+      to: [automationTo], // ✅ SEMPRE destino fixo
       subject,
       html: htmlBody,
     };
@@ -189,7 +190,10 @@ export async function sendTriggerEmail(
 
     if (!response.ok) {
       console.error("[Email] Resend error:", result);
-      return { success: false, message: (result?.message as string) ?? "Erro ao enviar email" };
+      return {
+        success: false,
+        message: (result?.message as string) ?? "Erro ao enviar email",
+      };
     }
 
     console.log("[Email] Enviado com sucesso! ID:", result.id);
