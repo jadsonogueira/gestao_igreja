@@ -269,8 +269,8 @@ export default function CheckinPage() {
       </div>
 
       <div className="mt-6 text-center text-sm text-gray-500">
-        Se preferir, voce pode pedir ajuda a um voluntario.
-      </div>
+  Se preferir, um voluntario pode te ajudar com o cadastro. 🤍
+</div>
     </div>
   );
 }
