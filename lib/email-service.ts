@@ -49,11 +49,29 @@ function extractFilenameFromUrl(url: string, fallbackExt = "png") {
 // e também não quebra TS caso a assinatura mude novamente.
 const getFileUrlAny = getFileUrl as unknown as (cloudPath: string, options?: any) => Promise<string>;
 
+function buildAppPublicUrl(publicPath: string) {
+  const base = getRequiredEnv("BASE_URL"); // ex: https://gestao-igreja-svo6.onrender.com
+  const normalized = publicPath
+    .replace(/^public\//, "") // "public/uploads/x.jpg" -> "uploads/x.jpg"
+    .replace(/^\//, "");      // "/uploads/x.jpg" -> "uploads/x.jpg"
+
+  return new URL(`/${normalized}`, base).toString(); // => https://.../uploads/x.jpg
+}
+
 async function resolveFlyerToHttpUrl(flyerUrl: string): Promise<string> {
   // Se já é URL http, ok
   if (looksLikeUrl(flyerUrl)) return flyerUrl;
 
-  // Se é key do bucket, decide se é publico pelo prefixo
+  // ✅ Se é arquivo do Next public (public/uploads ou /uploads ou uploads)
+  if (
+    flyerUrl.startsWith("public/uploads/") ||
+    flyerUrl.startsWith("/uploads/") ||
+    flyerUrl.startsWith("uploads/")
+  ) {
+    return buildAppPublicUrl(flyerUrl);
+  }
+
+  // Senão, trata como key do bucket
   const isPublic = /(^|\/)public\//.test(flyerUrl) || /public\/uploads\//.test(flyerUrl);
 
   // ✅ assinatura nova: getFileUrl(path, { public: true/false })
@@ -129,15 +147,15 @@ export async function sendTriggerEmail(
     const attachments: Array<{ filename: string; content: string; content_type?: string }> = [];
 
     if (flyerUrl) {
-      // ✅ resolve key -> URL pública/assinada antes de baixar
       const resolvedUrl = await resolveFlyerToHttpUrl(flyerUrl);
+      console.log("[Email] Flyer resolvido para URL:", resolvedUrl);
 
       const imageData = await downloadImageAsBase64(resolvedUrl);
       if (imageData) {
         attachments.push({
           filename: imageData.filename,
           content: imageData.content,
-          content_type: imageData.contentType, // ajuda alguns clientes
+          content_type: imageData.contentType,
         });
         console.log("[Email] Anexo adicionado:", imageData.filename);
       } else {
@@ -147,7 +165,7 @@ export async function sendTriggerEmail(
 
     const emailPayload: Record<string, unknown> = {
       from,
-      to: [automationTo], // ✅ SEMPRE destino fixo
+      to: [automationTo],
       subject,
       html: htmlBody,
     };
@@ -156,14 +174,7 @@ export async function sendTriggerEmail(
       emailPayload.attachments = attachments;
     }
 
-    console.log(
-      "[Email] Enviando para:",
-      automationTo,
-      "| from:",
-      from,
-      "| anexos:",
-      attachments.length
-    );
+    console.log("[Email] Enviando para:", automationTo, "| from:", from, "| anexos:", attachments.length);
 
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -178,10 +189,7 @@ export async function sendTriggerEmail(
 
     if (!response.ok) {
       console.error("[Email] Resend error:", result);
-      return {
-        success: false,
-        message: (result?.message as string) ?? "Erro ao enviar email",
-      };
+      return { success: false, message: (result?.message as string) ?? "Erro ao enviar email" };
     }
 
     console.log("[Email] Enviado com sucesso! ID:", result.id);
