@@ -4,7 +4,13 @@ import { createS3Client, getBucketConfig } from './aws-config';
 
 const s3Client = createS3Client();
 const { bucketName, folderPrefix } = getBucketConfig();
-const region = process.env.AWS_REGION ?? 'us-east-1';
+
+/**
+ * IMPORTANTE (Cloudflare R2):
+ * - Não existe URL no padrão: https://<bucket>.s3.<region>.amazonaws.com/...
+ * - Para servir publicamente, você precisa de um "Public R2 Bucket" + "Public Domain"
+ *   OU usar sempre URL assinada (recomendado aqui).
+ */
 
 export async function generatePresignedUploadUrl(
   fileName: string,
@@ -22,7 +28,6 @@ export async function generatePresignedUploadUrl(
     Bucket: bucketName,
     Key: cloud_storage_path,
     ContentType: contentType,
-    // ✅ NÃO força attachment no upload
   });
 
   const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 });
@@ -33,16 +38,10 @@ export async function getFileUrl(
   cloud_storage_path: string,
   options?: { public?: boolean; download?: boolean; expiresIn?: number }
 ): Promise<string> {
-  const isPublic = options?.public ?? false;
   const download = options?.download ?? false;
   const expiresIn = options?.expiresIn ?? 3600;
 
-  // Se você realmente tiver prefixo público com policy liberada, pode usar isso.
-  if (isPublic) {
-    return `https://${bucketName}.s3.${region}.amazonaws.com/${cloud_storage_path}`;
-  }
-
-  // ✅ Preview (inline) por padrão: NÃO setar ResponseContentDisposition
+  // ✅ Para R2: sempre use URL assinada para GET (inclusive "public/...")
   const command = new GetObjectCommand({
     Bucket: bucketName,
     Key: cloud_storage_path,
