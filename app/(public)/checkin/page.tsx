@@ -261,8 +261,8 @@ export default function CheckinPage() {
               </button>
 
               <p className="text-xs text-gray-500 text-center">
-                Ao enviar, voce concorda em receber contato da igreja por WhatsApp e/ou e-mail.
-              </p>
+  Ao enviar, voce autoriza a igreja a entrar em contato com voce por WhatsApp, SMS e/ou e-mail.
+</p>
             </form>
           )}
         </div>
