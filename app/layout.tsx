@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import './globals.css';
-import Navbar from '@/components/layout/navbar';
+import RootShell from '@/components/layout/root-shell';
 import { Toaster } from 'react-hot-toast';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -35,16 +35,19 @@ export default function RootLayout({
         <meta name="color-scheme" content="light only" />
       </head>
       <body className={`${inter.className} bg-gray-50 min-h-screen`} suppressHydrationWarning>
-        <Navbar />
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {children}
-        </main>
+        <RootShell>{children}</RootShell>
+
         <Toaster position="top-right" />
-        <style dangerouslySetInnerHTML={{ __html: `
+
+        <style
+          dangerouslySetInnerHTML={{
+            __html: `
           [data-hydration-error] { display: none !important; }
           :root { color-scheme: light only; }
           html { color-scheme: light !important; }
-        ` }} />
+        `,
+          }}
+        />
       </body>
     </html>
   );
