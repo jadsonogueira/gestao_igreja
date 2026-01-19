@@ -193,7 +193,7 @@ Preencha seus dados para que possamos caminhar juntos e manter contato com você
                   onChange={(e) => setForm((s) => ({ ...s, nome: e.target.value }))}
                   onKeyDown={(e) => handleKeyDown(e, "nome")}
                   className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-4 text-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Ex: Maria Silva"
+                  placeholder="Seu Nome"
                   autoComplete="name"
                   required
                 />
@@ -231,7 +231,7 @@ Preencha seus dados para que possamos caminhar juntos e manter contato com você
                   onChange={(e) => setForm((s) => ({ ...s, email: e.target.value }))}
                   onKeyDown={(e) => handleKeyDown(e, "email")}
                   className="mt-2 w-full rounded-xl border border-gray-300 px-4 py-4 text-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Ex: maria@email.com"
+                  placeholder="Ex: seuemail@email.com"
                   autoComplete="email"
                   inputMode="email"
                 />
