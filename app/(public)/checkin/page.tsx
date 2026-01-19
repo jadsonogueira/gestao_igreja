@@ -158,10 +158,11 @@ export default function CheckinPage() {
     <div className="max-w-xl mx-auto">
       <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="px-6 py-6 sm:px-10 sm:py-8 border-b border-gray-100">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Cadastro rápido</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Seja bem-vindo(a)! 🤍</h1>
           <p className="mt-2 text-gray-600">
-            Preencha seus dados para a igreja manter contato com você. Leva menos de 1 minuto.
-          </p>
+            Que alegria ter você com a gente!
+Preencha seus dados para que possamos caminhar juntos e manter contato com você.
+</p>
         </div>
 
         <div className="px-6 py-6 sm:px-10 sm:py-8">
