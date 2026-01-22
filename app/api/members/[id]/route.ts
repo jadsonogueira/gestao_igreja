@@ -4,6 +4,34 @@ export const runtime = "nodejs";
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 
+function onlyDigits(input: string) {
+  return input.replace(/\D/g, '');
+}
+
+function toE164(input: string) {
+  const digits = onlyDigits(input);
+
+  const DEFAULT_COUNTRY_CODE = onlyDigits(process.env.DEFAULT_COUNTRY_CODE ?? '1'); // Render: DEFAULT_COUNTRY_CODE=1
+
+  // Brasil já com DDI (55 + DDD + número)
+  if (digits.startsWith('55') && digits.length >= 12) {
+    return `+${digits}`;
+  }
+
+  // América do Norte já com DDI 1 (11 dígitos)
+  if (digits.startsWith('1') && digits.length === 11) {
+    return `+${digits}`;
+  }
+
+  // América do Norte local (10 dígitos) => adiciona +1
+  if (digits.length === 10) {
+    return `+${DEFAULT_COUNTRY_CODE}${digits}`;
+  }
+
+  // Fallback: prefixa o default
+  return `+${DEFAULT_COUNTRY_CODE}${digits}`;
+}
+
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
@@ -33,6 +61,7 @@ export async function GET(
           pastoral: member.grupoPastoral,
           devocional: member.grupoDevocional,
           visitantes: member.grupoVisitantes,
+          convite: (member as any).grupoConvite ?? false, // ✅ NOVO
           membros_sumidos: member.grupoSumidos,
         },
         rede_relacionamento: member.redeRelacionamento,
@@ -59,16 +88,51 @@ export async function PUT(
 
     if (body.nome !== undefined) updateData.nome = body.nome;
     if (body.email !== undefined) updateData.email = body.email;
-    if (body.telefone !== undefined) updateData.telefone = body.telefone;
-    if (body.data_nascimento !== undefined) {
-      updateData.dataNascimento = body.data_nascimento ? new Date(body.data_nascimento) : null;
+
+    // ✅ Telefone: salva sempre em E.164 se vier no body
+    if (body.telefone !== undefined) {
+      const raw = String(body.telefone ?? '').trim();
+      if (!raw) {
+        updateData.telefone = null;
+      } else {
+        const digits = onlyDigits(raw);
+        if (digits.length < 7) {
+          return NextResponse.json(
+            { success: false, error: 'Telefone inválido' },
+            { status: 400 }
+          );
+        }
+        updateData.telefone = toE164(raw);
+      }
     }
+
+    if (body.data_nascimento !== undefined) {
+      updateData.dataNascimento = body.data_nascimento
+        ? new Date(body.data_nascimento)
+        : null;
+    }
+
     if (body.endereco !== undefined) updateData.endereco = body.endereco;
-    if (body.grupos?.pastoral !== undefined) updateData.grupoPastoral = body.grupos.pastoral;
-    if (body.grupos?.devocional !== undefined) updateData.grupoDevocional = body.grupos.devocional;
-    if (body.grupos?.visitantes !== undefined) updateData.grupoVisitantes = body.grupos.visitantes;
-    if (body.grupos?.membros_sumidos !== undefined) updateData.grupoSumidos = body.grupos.membros_sumidos;
-    if (body.rede_relacionamento !== undefined) updateData.redeRelacionamento = body.rede_relacionamento;
+
+    if (body.grupos?.pastoral !== undefined)
+      updateData.grupoPastoral = body.grupos.pastoral;
+
+    if (body.grupos?.devocional !== undefined)
+      updateData.grupoDevocional = body.grupos.devocional;
+
+    if (body.grupos?.visitantes !== undefined)
+      updateData.grupoVisitantes = body.grupos.visitantes;
+
+    // ✅ NOVO
+    if (body.grupos?.convite !== undefined)
+      updateData.grupoConvite = body.grupos.convite;
+
+    if (body.grupos?.membros_sumidos !== undefined)
+      updateData.grupoSumidos = body.grupos.membros_sumidos;
+
+    if (body.rede_relacionamento !== undefined)
+      updateData.redeRelacionamento = body.rede_relacionamento;
+
     if (body.ativo !== undefined) updateData.ativo = body.ativo;
 
     const member = await prisma.member.update({
@@ -89,6 +153,7 @@ export async function PUT(
           pastoral: member.grupoPastoral,
           devocional: member.grupoDevocional,
           visitantes: member.grupoVisitantes,
+          convite: (member as any).grupoConvite ?? false, // ✅ NOVO
           membros_sumidos: member.grupoSumidos,
         },
         rede_relacionamento: member.redeRelacionamento,
