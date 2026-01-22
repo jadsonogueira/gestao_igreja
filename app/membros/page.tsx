@@ -34,6 +34,7 @@ interface Member {
     pastoral: boolean;
     devocional: boolean;
     visitantes: boolean;
+    convite: boolean; // ✅ NOVO
     membros_sumidos: boolean;
   };
   rede_relacionamento?: { _id: string; nome: string };
@@ -51,6 +52,7 @@ const initialFormState = {
     pastoral: false,
     devocional: false,
     visitantes: false,
+    convite: false, // ✅ NOVO
     membros_sumidos: false,
   },
   rede_relacionamento: '',
@@ -128,6 +130,7 @@ export default function MembrosPage() {
         pastoral: member?.grupos?.pastoral ?? false,
         devocional: member?.grupos?.devocional ?? false,
         visitantes: member?.grupos?.visitantes ?? false,
+        convite: member?.grupos?.convite ?? false, // ✅ NOVO
         membros_sumidos: member?.grupos?.membros_sumidos ?? false,
       },
       rede_relacionamento: (member?.rede_relacionamento as any)?._id ?? '',
@@ -242,6 +245,7 @@ export default function MembrosPage() {
                 { value: 'pastoral', label: 'Pastoral' },
                 { value: 'devocional', label: 'Devocional' },
                 { value: 'visitantes', label: 'Visitantes' },
+                { value: 'convite', label: 'Convite' }, // ✅ NOVO
                 { value: 'membros_sumidos', label: 'Membros Sumidos' },
               ]}
               value={grupoFilter}
@@ -328,16 +332,29 @@ export default function MembrosPage() {
               <div className="mt-3 pt-3 border-t border-gray-100">
                 <div className="flex flex-wrap gap-1">
                   {member?.grupos?.pastoral && (
-                    <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-full">Pastoral</span>
+                    <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-full">
+                      Pastoral
+                    </span>
                   )}
                   {member?.grupos?.devocional && (
-                    <span className="text-xs px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full">Devocional</span>
+                    <span className="text-xs px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full">
+                      Devocional
+                    </span>
                   )}
                   {member?.grupos?.visitantes && (
-                    <span className="text-xs px-2 py-1 bg-amber-100 text-amber-700 rounded-full">Visitante</span>
+                    <span className="text-xs px-2 py-1 bg-amber-100 text-amber-700 rounded-full">
+                      Visitante
+                    </span>
+                  )}
+                  {member?.grupos?.convite && (
+                    <span className="text-xs px-2 py-1 bg-indigo-100 text-indigo-700 rounded-full">
+                      Convite
+                    </span>
                   )}
                   {member?.grupos?.membros_sumidos && (
-                    <span className="text-xs px-2 py-1 bg-rose-100 text-rose-700 rounded-full">Sumido</span>
+                    <span className="text-xs px-2 py-1 bg-rose-100 text-rose-700 rounded-full">
+                      Sumido
+                    </span>
                   )}
                 </div>
               </div>
@@ -401,7 +418,9 @@ export default function MembrosPage() {
               ?.map((m) => ({ value: m?._id ?? '', label: m?.nome ?? '' }))}
             placeholder="Selecione um membro"
             value={formData?.rede_relacionamento ?? ''}
-            onChange={(e) => setFormData({ ...formData, rede_relacionamento: e?.target?.value ?? '' })}
+            onChange={(e) =>
+              setFormData({ ...formData, rede_relacionamento: e?.target?.value ?? '' })
+            }
           />
 
           <div className="space-y-3">
@@ -437,6 +456,19 @@ export default function MembrosPage() {
                   })
                 }
               />
+
+              {/* ✅ NOVO */}
+              <Checkbox
+                label="Convite"
+                checked={formData?.grupos?.convite ?? false}
+                onChange={(checked) =>
+                  setFormData({
+                    ...formData,
+                    grupos: { ...(formData?.grupos ?? {}), convite: checked },
+                  })
+                }
+              />
+
               <Checkbox
                 label="Membros Sumidos"
                 checked={formData?.grupos?.membros_sumidos ?? false}
