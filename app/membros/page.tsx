@@ -34,7 +34,7 @@ interface Member {
     pastoral: boolean;
     devocional: boolean;
     visitantes: boolean;
-    convite: boolean; // ✅ NOVO
+    convite?: boolean; // ✅ NOVO
     membros_sumidos: boolean;
   };
   rede_relacionamento?: { _id: string; nome: string };
@@ -58,6 +58,47 @@ const initialFormState = {
   rede_relacionamento: '',
   ativo: true,
 };
+
+// ✅ Formatação APENAS para exibição
+function formatPhoneDisplay(phone?: string) {
+  if (!phone) return '';
+
+  // já vem do banco como +16478062087 (ideal)
+  const raw = String(phone).trim();
+  const digits = raw.replace(/\D/g, '');
+
+  // NANP: +1XXXXXXXXXX (11 dígitos começando com 1)
+  if (digits.length === 11 && digits.startsWith('1')) {
+    const area = digits.slice(1, 4);
+    const prefix = digits.slice(4, 7);
+    const line = digits.slice(7, 11);
+    return `+1 (${area}) ${prefix}-${line}`;
+  }
+
+  // NANP sem +1: XXXXXXXXXX (10 dígitos)
+  if (digits.length === 10) {
+    const area = digits.slice(0, 3);
+    const prefix = digits.slice(3, 6);
+    const line = digits.slice(6, 10);
+    return `+1 (${area}) ${prefix}-${line}`;
+  }
+
+  // Brasil: +55DDDNXXXXXXXX (12~13 dígitos começando com 55)
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+    const ddd = digits.slice(2, 4);
+    const rest = digits.slice(4);
+    if (rest.length === 9) {
+      return `+55 (${ddd}) ${rest.slice(0, 5)}-${rest.slice(5)}`;
+    }
+    if (rest.length === 8) {
+      return `+55 (${ddd}) ${rest.slice(0, 4)}-${rest.slice(4)}`;
+    }
+    return `+${digits}`;
+  }
+
+  // fallback: mostra como está
+  return raw;
+}
 
 export default function MembrosPage() {
   const [members, setMembers] = useState<Member[]>([]);
@@ -315,12 +356,14 @@ export default function MembrosPage() {
                   <Mail className="w-4 h-4 text-gray-400" />
                   <span className="truncate">{member?.email ?? '-'}</span>
                 </div>
+
                 {member?.telefone && (
                   <div className="flex items-center gap-2">
                     <Phone className="w-4 h-4 text-gray-400" />
-                    <span>{member.telefone}</span>
+                    <span>{formatPhoneDisplay(member.telefone)}</span>
                   </div>
                 )}
+
                 {member?.data_nascimento && (
                   <div className="flex items-center gap-2">
                     <Calendar className="w-4 h-4 text-gray-400" />
@@ -332,29 +375,19 @@ export default function MembrosPage() {
               <div className="mt-3 pt-3 border-t border-gray-100">
                 <div className="flex flex-wrap gap-1">
                   {member?.grupos?.pastoral && (
-                    <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-full">
-                      Pastoral
-                    </span>
+                    <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-full">Pastoral</span>
                   )}
                   {member?.grupos?.devocional && (
-                    <span className="text-xs px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full">
-                      Devocional
-                    </span>
+                    <span className="text-xs px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full">Devocional</span>
                   )}
                   {member?.grupos?.visitantes && (
-                    <span className="text-xs px-2 py-1 bg-amber-100 text-amber-700 rounded-full">
-                      Visitante
-                    </span>
+                    <span className="text-xs px-2 py-1 bg-amber-100 text-amber-700 rounded-full">Visitante</span>
                   )}
                   {member?.grupos?.convite && (
-                    <span className="text-xs px-2 py-1 bg-indigo-100 text-indigo-700 rounded-full">
-                      Convite
-                    </span>
+                    <span className="text-xs px-2 py-1 bg-indigo-100 text-indigo-700 rounded-full">Convite</span>
                   )}
                   {member?.grupos?.membros_sumidos && (
-                    <span className="text-xs px-2 py-1 bg-rose-100 text-rose-700 rounded-full">
-                      Sumido
-                    </span>
+                    <span className="text-xs px-2 py-1 bg-rose-100 text-rose-700 rounded-full">Sumido</span>
                   )}
                 </div>
               </div>
@@ -418,9 +451,7 @@ export default function MembrosPage() {
               ?.map((m) => ({ value: m?._id ?? '', label: m?.nome ?? '' }))}
             placeholder="Selecione um membro"
             value={formData?.rede_relacionamento ?? ''}
-            onChange={(e) =>
-              setFormData({ ...formData, rede_relacionamento: e?.target?.value ?? '' })
-            }
+            onChange={(e) => setFormData({ ...formData, rede_relacionamento: e?.target?.value ?? '' })}
           />
 
           <div className="space-y-3">
@@ -456,19 +487,16 @@ export default function MembrosPage() {
                   })
                 }
               />
-
-              {/* ✅ NOVO */}
               <Checkbox
                 label="Convite"
-                checked={formData?.grupos?.convite ?? false}
+                checked={(formData as any)?.grupos?.convite ?? false}
                 onChange={(checked) =>
                   setFormData({
                     ...formData,
                     grupos: { ...(formData?.grupos ?? {}), convite: checked },
-                  })
+                  } as any)
                 }
               />
-
               <Checkbox
                 label="Membros Sumidos"
                 checked={formData?.grupos?.membros_sumidos ?? false}
