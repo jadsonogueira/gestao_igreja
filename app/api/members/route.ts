@@ -33,6 +33,9 @@ export async function GET(request: Request) {
         case 'visitantes':
           where.grupoVisitantes = true;
           break;
+        case 'convite':
+          where.grupoConvite = true; // ✅ NOVO
+          break;
         case 'membros_sumidos':
           where.grupoSumidos = true;
           break;
@@ -67,6 +70,7 @@ export async function GET(request: Request) {
         pastoral: m.grupoPastoral,
         devocional: m.grupoDevocional,
         visitantes: m.grupoVisitantes,
+        convite: (m as any).grupoConvite ?? false, // ✅ NOVO (compatível enquanto migra)
         membros_sumidos: m.grupoSumidos,
       },
       rede_relacionamento: m.redeRelacionamento,
@@ -107,10 +111,11 @@ export async function POST(request: Request) {
         grupoPastoral: body.grupos?.pastoral ?? false,
         grupoDevocional: body.grupos?.devocional ?? false,
         grupoVisitantes: body.grupos?.visitantes ?? false,
+        grupoConvite: body.grupos?.convite ?? false, // ✅ NOVO
         grupoSumidos: body.grupos?.membros_sumidos ?? false,
         redeRelacionamento: body.rede_relacionamento ?? null,
         ativo: body.ativo ?? true,
-      },
+      } as any,
     });
 
     return NextResponse.json({
@@ -126,6 +131,7 @@ export async function POST(request: Request) {
           pastoral: member.grupoPastoral,
           devocional: member.grupoDevocional,
           visitantes: member.grupoVisitantes,
+          convite: (member as any).grupoConvite ?? false, // ✅ NOVO
           membros_sumidos: member.grupoSumidos,
         },
         rede_relacionamento: member.redeRelacionamento,
