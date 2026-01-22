@@ -214,7 +214,10 @@ export default function Dashboard() {
             ))}
           </div>
         ) : (
-          <p className="text-gray-500 text-center py-8">Nenhum aniversário próximo</p>
+          <div className="flex items-center justify-center gap-2 rounded-xl bg-gray-50 border border-gray-100 py-4">
+            <Calendar className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-500 text-sm">Nenhum aniversário próximo</span>
+          </div>
         )}
       </motion.div>
     </div>
