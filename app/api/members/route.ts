@@ -4,6 +4,34 @@ export const runtime = "nodejs";
 import { NextResponse } from 'next/server';
 import prisma from '@/lib/db';
 
+function onlyDigits(input: string) {
+  return input.replace(/\D/g, '');
+}
+
+function toE164(input: string) {
+  const digits = onlyDigits(input);
+
+  const DEFAULT_COUNTRY_CODE = onlyDigits(process.env.DEFAULT_COUNTRY_CODE ?? '1'); // Render: DEFAULT_COUNTRY_CODE=1
+
+  // Brasil já com DDI (55 + DDD + número)
+  if (digits.startsWith('55') && digits.length >= 12) {
+    return `+${digits}`;
+  }
+
+  // América do Norte já com DDI 1 (11 dígitos)
+  if (digits.startsWith('1') && digits.length === 11) {
+    return `+${digits}`;
+  }
+
+  // América do Norte local (10 dígitos) => adiciona +1
+  if (digits.length === 10) {
+    return `+${DEFAULT_COUNTRY_CODE}${digits}`;
+  }
+
+  // Fallback: prefixa o default
+  return `+${DEFAULT_COUNTRY_CODE}${digits}`;
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -34,7 +62,7 @@ export async function GET(request: Request) {
           where.grupoVisitantes = true;
           break;
         case 'convite':
-          where.grupoConvite = true; // ✅ NOVO
+          where.grupoConvite = true;
           break;
         case 'membros_sumidos':
           where.grupoSumidos = true;
@@ -58,7 +86,6 @@ export async function GET(request: Request) {
       prisma.member.count({ where }),
     ]);
 
-    // Transform to match frontend expectations
     const transformedMembers = members.map((m: (typeof members)[number]) => ({
       _id: m.id,
       nome: m.nome,
@@ -70,7 +97,7 @@ export async function GET(request: Request) {
         pastoral: m.grupoPastoral,
         devocional: m.grupoDevocional,
         visitantes: m.grupoVisitantes,
-        convite: (m as any).grupoConvite ?? false, // ✅ NOVO (compatível enquanto migra)
+        convite: (m as any).grupoConvite ?? false,
         membros_sumidos: m.grupoSumidos,
       },
       rede_relacionamento: m.redeRelacionamento,
@@ -101,17 +128,33 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
 
+    // ✅ normaliza telefone no POST também
+    let telefoneFinal: string | null = null;
+    if (body.telefone !== undefined && body.telefone !== null) {
+      const raw = String(body.telefone ?? '').trim();
+      if (raw) {
+        const digits = onlyDigits(raw);
+        if (digits.length < 7) {
+          return NextResponse.json(
+            { success: false, error: 'Telefone inválido' },
+            { status: 400 }
+          );
+        }
+        telefoneFinal = toE164(raw);
+      }
+    }
+
     const member = await prisma.member.create({
       data: {
         nome: body.nome,
         email: body.email ?? null,
-        telefone: body.telefone ?? null,
+        telefone: telefoneFinal, // ✅ agora grava em E.164 (ou null)
         dataNascimento: body.data_nascimento ? new Date(body.data_nascimento) : null,
         endereco: body.endereco ?? null,
         grupoPastoral: body.grupos?.pastoral ?? false,
         grupoDevocional: body.grupos?.devocional ?? false,
         grupoVisitantes: body.grupos?.visitantes ?? false,
-        grupoConvite: body.grupos?.convite ?? false, // ✅ NOVO
+        grupoConvite: body.grupos?.convite ?? false,
         grupoSumidos: body.grupos?.membros_sumidos ?? false,
         redeRelacionamento: body.rede_relacionamento ?? null,
         ativo: body.ativo ?? true,
@@ -131,7 +174,7 @@ export async function POST(request: Request) {
           pastoral: member.grupoPastoral,
           devocional: member.grupoDevocional,
           visitantes: member.grupoVisitantes,
-          convite: (member as any).grupoConvite ?? false, // ✅ NOVO
+          convite: (member as any).grupoConvite ?? false,
           membros_sumidos: member.grupoSumidos,
         },
         rede_relacionamento: member.redeRelacionamento,
