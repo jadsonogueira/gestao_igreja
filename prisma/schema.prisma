@@ -19,9 +19,11 @@ model Member {
   grupoPastoral      Boolean  @default(false)
   grupoDevocional    Boolean  @default(false)
   grupoVisitantes    Boolean  @default(false)
+  grupoConvite       Boolean  @default(false)
   grupoSumidos       Boolean  @default(false)
   redeRelacionamento String?
   ativo              Boolean  @default(true)
+  createdCheckinAt   DateTime?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   emailLogs          EmailLog[]
