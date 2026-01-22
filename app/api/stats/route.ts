@@ -32,6 +32,46 @@ function getBirthMonthDayUTC(dateInput: Date | string | null | undefined) {
   };
 }
 
+// ✅ NASCIMENTO em Toronto (pra bater com o "hoje" em Toronto)
+function getBirthMonthDayInTimeZone(dateInput: Date | string | null | undefined) {
+  if (!dateInput) return null;
+
+  const d = typeof dateInput === "string" ? new Date(dateInput) : new Date(dateInput);
+  if (Number.isNaN(d.getTime())) return null;
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: APP_TIMEZONE,
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+
+  const month = Number(parts.find((p) => p.type === "month")?.value ?? "0");
+  const day = Number(parts.find((p) => p.type === "day")?.value ?? "0");
+
+  if (!month || !day) return null;
+  return { month, day };
+}
+
+// ✅ calcula próxima ocorrência do aniversário (ano atual ou próximo)
+function nextBirthdayDate(month: number, day: number) {
+  const now = new Date();
+
+  const currentYear = Number(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: APP_TIMEZONE,
+      year: "numeric",
+    }).format(now)
+  );
+
+  const { month: cm, day: cd } = getTodayMonthDayInTimeZone(now);
+
+  const isPast = month < cm || (month === cm && day < cd);
+  const year = isPast ? currentYear + 1 : currentYear;
+
+  // meio-dia UTC para evitar “voltar um dia” por fuso
+  return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+}
+
 type MemberBirth = {
   id: string;
   nome: string;
@@ -89,12 +129,32 @@ export async function GET() {
     // ✅ HOJE em Toronto
     const { month: currentMonth, day: currentDay } = getTodayMonthDayInTimeZone(new Date());
 
-    // ✅ NASCIMENTO em UTC
+    // ✅ NASCIMENTO (se quiser manter, ok — mas o ideal é comparar no mesmo timezone do "hoje")
     const aniversariantesHoje = membersWithBirth.reduce((acc, m) => {
-      const md = getBirthMonthDayUTC(m.dataNascimento ?? null);
+      const md = getBirthMonthDayInTimeZone(m.dataNascimento ?? null);
       if (!md) return acc;
       return md.month === currentMonth && md.day === currentDay ? acc + 1 : acc;
     }, 0);
+
+    // ✅ Próximos aniversários (lista)
+    const proximosAniversariantes = membersWithBirth
+      .map((m) => {
+        const md = getBirthMonthDayInTimeZone(m.dataNascimento);
+        if (!md) return null;
+
+        const next = nextBirthdayDate(md.month, md.day);
+
+        return {
+          _id: m.id,
+          nome: m.nome,
+          data_nascimento: m.dataNascimento,
+          nextBirthday: next,
+        };
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => a.nextBirthday.getTime() - b.nextBirthday.getTime())
+      .slice(0, 6)
+      .map(({ nextBirthday, ...rest }: any) => rest);
 
     const allGroups = (await prisma.messageGroup.findMany({
       orderBy: { nomeGrupo: "asc" },
@@ -156,6 +216,7 @@ export async function GET() {
           membros_sumidos: sumidos,
         },
         groups: groupsWithCounts,
+        proximosAniversariantes, // ✅ AGORA VAI
       },
     });
   } catch (error) {
