@@ -25,7 +25,9 @@ export async function POST(request: Request) {
     const nome = String(body.nome ?? "").trim();
     const telefoneRaw = String(body.telefone ?? "").trim();
     const email = body.email ? String(body.email).trim() : null;
-    const dataNascimentoStr = body.data_nascimento ? String(body.data_nascimento).trim() : null;
+    const dataNascimentoStr = body.data_nascimento
+      ? String(body.data_nascimento).trim()
+      : null;
 
     if (nome.length < 2) return jsonError("Informe um nome valido.");
     if (telefoneRaw.length < 7) return jsonError("Informe um telefone valido.");
@@ -44,72 +46,57 @@ export async function POST(request: Request) {
     const telefoneNormalized = normalizePhone(telefoneRaw);
     if (telefoneNormalized.length < 7) return jsonError("Telefone invalido.");
 
-    // 1) tenta encontrar por telefone normalizado
-    // Como seu schema não tem campo "telefoneNormalized", vamos comparar pelo telefone com dígitos também.
-    // Para garantir consistência, vamos SALVAR o telefone no formato normalizado (somente dígitos).
+    // ✅ Regra do seu projeto:
+    // Check-in é pré-cadastro de primeira visita.
+    // Se já existe cadastro com esse telefone, NÃO permite novo cadastro.
     const existing = await prisma.member.findFirst({
       where: { telefone: telefoneNormalized },
-      select: {
-        id: true,
-        redeRelacionamento: true,
-        grupoVisitantes: true,
-      },
+      select: { id: true },
     });
 
-    // 2) Se existe, atualiza. Se não, cria.
-    const member = existing
-      ? await prisma.member.update({
-          where: { id: existing.id },
-          data: {
-            nome,
-            telefone: telefoneNormalized,
-            email,
-            dataNascimento,
+    if (existing) {
+      return jsonError(
+        "Este telefone ja possui cadastro. Se precisar atualizar seus dados, fale com um voluntario. 🤍",
+        409
+      );
+    }
 
-            // garante flags do checkin
-            grupoVisitantes: true,
-            ativo: true,
+    const now = new Date();
 
-            // só preenche se estiver vazio (pra não sobrescrever histórico)
-            redeRelacionamento: existing.redeRelacionamento ?? "checkin_tablet",
-          },
-          select: {
-            id: true,
-            nome: true,
-            telefone: true,
-            email: true,
-            dataNascimento: true,
-            grupoVisitantes: true,
-            createdAt: true,
-            updatedAt: true,
-          },
-        })
-      : await prisma.member.create({
-          data: {
-            nome,
-            telefone: telefoneNormalized,
-            email,
-            dataNascimento,
-            grupoVisitantes: true,
-            ativo: true,
-            redeRelacionamento: "checkin_tablet",
-          },
-          select: {
-            id: true,
-            nome: true,
-            telefone: true,
-            email: true,
-            dataNascimento: true,
-            grupoVisitantes: true,
-            createdAt: true,
-            updatedAt: true,
-          },
-        });
+    // ✅ Cria e já insere nos 2 grupos: visitantes + convite
+    // ✅ Registra a data do check-in no createdCheckinAt
+    const member = await prisma.member.create({
+      data: {
+        nome,
+        telefone: telefoneNormalized,
+        email,
+        dataNascimento,
+
+        grupoVisitantes: true,
+        grupoConvite: true,
+        ativo: true,
+
+        redeRelacionamento: "checkin_tablet",
+        createdCheckinAt: now,
+      },
+      select: {
+        id: true,
+        nome: true,
+        telefone: true,
+        email: true,
+        dataNascimento: true,
+        grupoVisitantes: true,
+        grupoConvite: true,
+        createdCheckinAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
 
     return NextResponse.json({
       success: true,
       data: member,
-      action: existing ? "updated" : "created",
+      action: "created",
     });
   } catch (error) {
     console.error("Error in /api/checkin:", error);
