@@ -36,7 +36,8 @@ export async function POST() {
     const escalaWhen = pendingEscala?.enviarEm ? new Date(pendingEscala.enviarEm) : null;
 
     const processEscalaFirst =
-      !!pendingEscala && (!pendingEmail || (escalaWhen && emailWhen && escalaWhen <= emailWhen));
+      !!pendingEscala &&
+      (!pendingEmail || (escalaWhen && emailWhen && escalaWhen <= emailWhen));
 
     if (processEscalaFirst) {
       // =========================
@@ -97,31 +98,46 @@ export async function POST() {
     // PROCESSA EMAILLOG (1 por tick)
     // =========================
 
+    // ✅ Aqui o TS ainda acha que pendingEmail pode ser null.
+    // Então fazemos um guard explícito:
+    if (!pendingEmail) {
+      // Teoricamente impossível, mas mantém o TS feliz.
+      return NextResponse.json({
+        success: true,
+        data: { processed: 0, success: 0, errors: 0 },
+        message: "Nenhum email pendente",
+      });
+    }
+
+    // A partir daqui: TS sabe que não é null
+    const email = pendingEmail;
+
     // Mark as sending
     await prisma.emailLog.update({
-      where: { id: pendingEmail.id },
+      where: { id: email.id },
       data: { status: "enviando" },
     });
 
     // Get group config and member
     const [group, member] = await Promise.all([
-      prisma.messageGroup.findFirst({ where: { nomeGrupo: pendingEmail.grupo } }),
-      prisma.member.findUnique({ where: { id: pendingEmail.membroId } }),
+      prisma.messageGroup.findFirst({ where: { nomeGrupo: email.grupo } }),
+      prisma.member.findUnique({ where: { id: email.membroId } }),
     ]);
 
     if (!member) {
       await prisma.emailLog.update({
-        where: { id: pendingEmail.id },
+        where: { id: email.id },
         data: { status: "erro", erroMensagem: "Membro não encontrado" },
       });
+
       return NextResponse.json({
         success: true,
-        data: { processed: 1, success: 0, errors: 1 },
+        data: { processed: 1, success: 0, errors: 1, kind: "email" },
       });
     }
 
     // Format date
-    const agendamento = new Date().toLocaleString("pt-BR", {
+    const agendamento = now.toLocaleString("pt-BR", {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
@@ -134,7 +150,7 @@ export async function POST() {
 
     if (!automationTo) {
       await prisma.emailLog.update({
-        where: { id: pendingEmail.id },
+        where: { id: email.id },
         data: { status: "erro", erroMensagem: "AUTOMATION_EMAIL_TO não configurado" },
       });
 
@@ -145,7 +161,7 @@ export async function POST() {
     }
 
     const result = await sendTriggerEmail(
-      pendingEmail.grupo as GroupType,
+      email.grupo as GroupType,
       member.nome ?? "",
       member.email ?? "",
       member.telefone ?? "",
@@ -160,19 +176,17 @@ export async function POST() {
       // 1) marca email log como enviado
       updates.push(
         prisma.emailLog.update({
-          where: { id: pendingEmail.id },
+          where: { id: email.id },
           data: {
             status: "enviado",
-            dataEnvio: new Date(),
+            dataEnvio: now,
             mensagemEnviada: group?.mensagemPadrao ?? "",
           },
         })
       );
 
       // 2) encerra "fila" do membro conforme o grupo enviado
-      // ✅ visitantes: evita reenviar boas-vindas no futuro
-      // ✅ convite: encerra campanha da sexta-feira
-      if (pendingEmail.grupo === "visitantes") {
+      if (email.grupo === "visitantes") {
         updates.push(
           prisma.member.update({
             where: { id: member.id },
@@ -181,7 +195,7 @@ export async function POST() {
         );
       }
 
-      if (pendingEmail.grupo === "convite") {
+      if (email.grupo === "convite") {
         updates.push(
           prisma.member.update({
             where: { id: member.id },
@@ -194,19 +208,19 @@ export async function POST() {
 
       return NextResponse.json({
         success: true,
-        data: { processed: 1, success: 1, errors: 0 },
-      });
-    } else {
-      await prisma.emailLog.update({
-        where: { id: pendingEmail.id },
-        data: { status: "erro", erroMensagem: result.message ?? "Erro desconhecido" },
-      });
-
-      return NextResponse.json({
-        success: true,
-        data: { processed: 1, success: 0, errors: 1 },
+        data: { processed: 1, success: 1, errors: 0, kind: "email" },
       });
     }
+
+    await prisma.emailLog.update({
+      where: { id: email.id },
+      data: { status: "erro", erroMensagem: result.message ?? "Erro desconhecido" },
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: { processed: 1, success: 0, errors: 1, kind: "email" },
+    });
   } catch (error) {
     console.error("Error processing email:", error);
     return NextResponse.json(
