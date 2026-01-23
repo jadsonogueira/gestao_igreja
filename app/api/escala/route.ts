@@ -1,45 +1,85 @@
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
-import type { EscalaTipo } from '@/lib/types';
+import { NextResponse } from "next/server";
+import prisma from "@/lib/db";
 
-function parseBool(v: string | null) {
-  if (v === null) return null;
-  if (v === 'true' || v === '1') return true;
-  if (v === 'false' || v === '0') return false;
-  return null;
+const APP_TIMEZONE = process.env.APP_TIMEZONE ?? "America/Toronto";
+
+function ymdInTZ(date: Date, timeZone = APP_TIMEZONE) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const y = parts.find((p) => p.type === "year")?.value ?? "1970";
+  const m = parts.find((p) => p.type === "month")?.value ?? "01";
+  const d = parts.find((p) => p.type === "day")?.value ?? "01";
+
+  return `${y}-${m}-${d}`;
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n));
 }
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const status = searchParams.get('status');
-    const tipo = searchParams.get('tipo');
-    const envioAutomatico = parseBool(searchParams.get('envioAutomatico'));
-    const take = Math.min(Number(searchParams.get('take') ?? '50') || 50, 200);
-    const skip = Math.max(Number(searchParams.get('skip') ?? '0') || 0, 0);
 
-    const where: any = {};
-    if (status) where.status = status;
-    if (tipo) where.tipo = tipo;
-    if (envioAutomatico !== null) where.envioAutomatico = envioAutomatico;
+    const daysRaw = Number(searchParams.get("days") ?? "60");
+    const days = clamp(Number.isFinite(daysRaw) ? daysRaw : 60, 1, 365);
 
-    const [items, total] = await Promise.all([
-      prisma.escala.findMany({
-        where,
-        orderBy: [{ dataEvento: 'asc' }, { enviarEm: 'asc' }],
-        take,
-        skip,
-      }),
-      prisma.escala.count({ where }),
-    ]);
+    // intervalo em UTC (suficiente porque o agrupamento por dia será em APP_TIMEZONE)
+    const now = new Date();
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+    const end = new Date(start.getTime() + days * 24 * 60 * 60 * 1000);
 
-    return NextResponse.json({ success: true, data: { items, total } });
-  } catch (error) {
-    console.error('Error fetching escala:', error);
-    return NextResponse.json({ success: false, error: 'Erro ao buscar escala' }, { status: 500 });
+    const rows = await prisma.escala.findMany({
+      where: {
+        dataEvento: {
+          gte: start,
+          lt: end,
+        },
+      },
+      orderBy: [{ dataEvento: "asc" }, { tipo: "asc" }],
+    });
+
+    // Agrupar por YYYY-MM-DD (no timezone do app)
+    const map = new Map<string, any[]>();
+
+    for (const r of rows) {
+      const key = ymdInTZ(r.dataEvento as Date);
+      if (!map.has(key)) map.set(key, []);
+
+      map.get(key)!.push({
+        id: r.id,
+        tipo: r.tipo,
+        nome: r.nomeResponsavel,
+        mensagem: r.mensagem ?? null,
+        envioAutomatico: r.envioAutomatico,
+        enviarEm: (r.enviarEm as Date).toISOString(),
+        status: r.status,
+      });
+    }
+
+    // Gera lista contínua de dias (mesmo se vazio), como agenda
+    const data: Array<{ date: string; items: any[] }> = [];
+    for (let i = 0; i < days; i++) {
+      const day = new Date(start.getTime() + i * 24 * 60 * 60 * 1000);
+      const key = ymdInTZ(day);
+      data.push({ date: key, items: map.get(key) ?? [] });
+    }
+
+    return NextResponse.json({ ok: true, data });
+  } catch (err: any) {
+    console.error("[GET /api/escala] error:", err);
+    return NextResponse.json(
+      { ok: false, error: "Falha ao carregar escala", details: String(err?.message ?? err) },
+      { status: 500 }
+    );
   }
 }
 
@@ -47,44 +87,45 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    const tipo = String(body?.tipo ?? '') as EscalaTipo;
-    const dataEvento = body?.dataEvento ? new Date(body.dataEvento) : null;
-    const enviarEm = body?.enviarEm ? new Date(body.enviarEm) : null;
+    const tipo = String(body?.tipo ?? "");
+    const nomeResponsavel = String(body?.nomeResponsavel ?? "").trim();
 
     if (!tipo) {
-      return NextResponse.json({ success: false, error: 'Tipo é obrigatório' }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Tipo é obrigatório" }, { status: 400 });
     }
-    if (!dataEvento || Number.isNaN(dataEvento.getTime())) {
-      return NextResponse.json({ success: false, error: 'dataEvento inválida' }, { status: 400 });
-    }
-    if (!enviarEm || Number.isNaN(enviarEm.getTime())) {
-      return NextResponse.json({ success: false, error: 'enviarEm inválido' }, { status: 400 });
-    }
-
-    const nomeResponsavel = String(body?.nomeResponsavel ?? '').trim();
     if (!nomeResponsavel) {
-      return NextResponse.json(
-        { success: false, error: 'Nome do responsável é obrigatório' },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Nome do responsável é obrigatório" }, { status: 400 });
     }
 
-    const item = await prisma.escala.create({
+    const dataEvento = new Date(body?.dataEvento);
+    if (Number.isNaN(dataEvento.getTime())) {
+      return NextResponse.json({ ok: false, error: "dataEvento inválida" }, { status: 400 });
+    }
+
+    const enviarEm = new Date(body?.enviarEm);
+    if (Number.isNaN(enviarEm.getTime())) {
+      return NextResponse.json({ ok: false, error: "enviarEm inválido" }, { status: 400 });
+    }
+
+    const created = await prisma.escala.create({
       data: {
-        tipo,
+        tipo: tipo as any,
         dataEvento,
-        horario: body?.horario ? String(body.horario) : null,
+        horario: body?.horario ? String(body.horario).trim() : null,
         nomeResponsavel,
-        mensagem: body?.mensagem ? String(body.mensagem) : null,
-        envioAutomatico: body?.envioAutomatico === false ? false : true,
+        mensagem: body?.mensagem ? String(body.mensagem).trim() : null,
+        envioAutomatico: Boolean(body?.envioAutomatico ?? true),
         enviarEm,
-        status: 'PENDENTE',
+        status: "PENDENTE" as any,
       },
     });
 
-    return NextResponse.json({ success: true, data: item });
-  } catch (error) {
-    console.error('Error creating escala:', error);
-    return NextResponse.json({ success: false, error: 'Erro ao criar escala' }, { status: 500 });
+    return NextResponse.json({ ok: true, created });
+  } catch (err: any) {
+    console.error("[POST /api/escala] error:", err);
+    return NextResponse.json(
+      { ok: false, error: "Falha ao criar escala", details: String(err?.message ?? err) },
+      { status: 500 }
+    );
   }
 }
