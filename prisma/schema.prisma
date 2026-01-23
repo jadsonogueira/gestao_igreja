@@ -70,3 +70,44 @@ model SystemConfig {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
+
+// =========================
+// ESCALA (culto / programação)
+// - Não envia para membros.
+// - Sempre dispara para AUTOMATION_EMAIL_TO (gatilho do Power Automate).
+// - Controlado pelo scheduler (/api/emails/process) para enviar 1 por minuto.
+// =========================
+
+enum EscalaTipo {
+  DIRIGENTE
+  LOUVOR
+  LOUVOR_ESPECIAL
+  PREGACAO
+  TESTEMUNHO
+}
+
+enum EscalaStatus {
+  PENDENTE
+  ENVIANDO
+  ENVIADO
+  ERRO
+}
+
+model Escala {
+  id              String       @id @default(auto()) @map("_id") @db.ObjectId
+  tipo            EscalaTipo
+  dataEvento      DateTime
+  horario         String?
+  nomeResponsavel String
+  mensagem        String?
+
+  envioAutomatico Boolean      @default(true)
+  enviarEm        DateTime
+  status          EscalaStatus @default(PENDENTE)
+
+  dataEnvio     DateTime?
+  erroMensagem  String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
