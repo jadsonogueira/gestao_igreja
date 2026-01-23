@@ -74,8 +74,7 @@ async function getValidGoogleAccessToken(): Promise<string> {
 export async function getGoogleCalendarClient() {
   const accessToken = await getValidGoogleAccessToken();
 
-  const calendarId = process.env.GOOGLE_CALENDAR_ID;
-  if (!calendarId) {
+  const calendarId = process.env.GOOGLE_CALENDAR_ID?.trim();if (!calendarId) {
     throw new Error('GOOGLE_CALENDAR_ID não configurado');
   }
 
