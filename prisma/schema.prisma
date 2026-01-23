@@ -94,25 +94,6 @@ enum EscalaStatus {
   ERRO
 }
 
-model Escala {
-  id              String       @id @default(auto()) @map("_id") @db.ObjectId
-  tipo            EscalaTipo
-  dataEvento      DateTime
-  horario         String?
-  nomeResponsavel String
-  mensagem        String?
-
-  envioAutomatico Boolean      @default(true)
-  enviarEm        DateTime
-  status          EscalaStatus @default(PENDENTE)
-
-  dataEnvio     DateTime?
-  erroMensagem  String?
-
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-}
-
 model GoogleIntegration {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
   provider     String   @unique
@@ -149,7 +130,6 @@ enum EscalaStatus {
   ENVIADO
   ERRO
 }
-
 model Escala {
   id String @id @default(auto()) @map("_id") @db.ObjectId
 
@@ -163,7 +143,7 @@ model Escala {
   // Sempre guarda o texto do responsável vindo do Google (fallback)
   nomeResponsavelRaw String?
 
-  // Mensagem opcional fica só no app (como você pediu)
+  // Mensagem opcional fica só no app
   mensagem String?
 
   envioAutomatico Boolean      @default(true)
