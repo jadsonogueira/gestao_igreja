@@ -126,3 +126,57 @@ model GoogleIntegration {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
+// =========================
+// ESCALA (culto / programação)
+// Integra com Google Calendar (import)
+// Vincula responsável pelo NOME (opção A):
+// - tenta achar Member.nome (case-insensitive)
+// - se achar: grava membroId + membroNome
+// - se não achar: grava nomeResponsavelRaw
+// =========================
+
+enum EscalaTipo {
+  DIRIGENTE
+  LOUVOR
+  LOUVOR_ESPECIAL
+  PREGACAO
+  TESTEMUNHO
+}
+
+enum EscalaStatus {
+  PENDENTE
+  ENVIANDO
+  ENVIADO
+  ERRO
+}
+
+model Escala {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  tipo       EscalaTipo
+  dataEvento DateTime
+
+  // Opção A: vínculo por nome do banco (quando encontrar)
+  membroId   String?  @db.ObjectId
+  membroNome String?  // espelho do nome do Member (pra exibir rápido)
+
+  // Sempre guarda o texto do responsável vindo do Google (fallback)
+  nomeResponsavelRaw String?
+
+  // Mensagem opcional fica só no app (como você pediu)
+  mensagem String?
+
+  envioAutomatico Boolean      @default(true)
+  enviarEm        DateTime
+  status          EscalaStatus @default(PENDENTE)
+
+  dataEnvio    DateTime?
+  erroMensagem String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  member Member? @relation(fields: [membroId], references: [id], onDelete: SetNull)
+
+  @@unique([tipo, dataEvento], name: "tipo_dataEvento")
+}
