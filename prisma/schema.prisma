@@ -1,7 +1,5 @@
 generator client {
   provider = "prisma-client-js"
-  // ✅ deixe o output padrão (NÃO defina output absoluto)
-  // ✅ deixe binaryTargets padrão também (Prisma escolhe o certo no Render)
 }
 
 datasource db {
@@ -27,27 +25,10 @@ model Member {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  emailLogs          EmailLog[]
+  emailLogs EmailLog[]
 
-  // ✅ inverso da relação com Escala
-  escalas            Escala[] @relation("MemberEscalas")
-}
-
-model MessageGroup {
-  id              String   @id @default(auto()) @map("_id") @db.ObjectId
-  nomeGrupo       String   @unique
-  mensagemPadrao  String   @default("")
-  frequenciaEnvio String   @default("mensal")
-  diaSemana       Int?
-  diaMes          Int?
-  horaEnvio       Int      @default(9)
-  minutoEnvio     Int      @default(0)
-  flyerUrl        String?
-  ultimoEnvio     DateTime?
-  proximoEnvio    DateTime?
-  ativo           Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  // 🔴 O CAMPO QUE O PRISMA ESTÁ COBRANDO
+  escalas Escala[] @relation("MemberEscalas")
 }
 
 model EmailLog {
@@ -78,25 +59,14 @@ model SystemConfig {
 model GoogleIntegration {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
   provider     String   @unique
-
   accessToken  String
   refreshToken String?
   scope        String?
   tokenType    String?
   expiryDate   DateTime?
-
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
-
-// =========================
-// ESCALA (culto / programação)
-// Integra com Google Calendar (import)
-// Vincula responsável pelo NOME (opção A):
-// - tenta achar Member.nome (case-insensitive)
-// - se achar: grava membroId + membroNome
-// - se não achar: grava nomeResponsavelRaw
-// =========================
 
 enum EscalaTipo {
   DIRIGENTE
@@ -120,7 +90,7 @@ model Escala {
   tipo       EscalaTipo
   dataEvento DateTime
 
-  membroId   String?  @db.ObjectId
+  membroId   String? @db.ObjectId
   membroNome String?
   nomeResponsavelRaw String?
   mensagem String?
@@ -135,8 +105,13 @@ model Escala {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // ✅ relação nomeada
-  member Member? @relation("MemberEscalas", fields: [membroId], references: [id], onDelete: SetNull)
+  // 🔴 RELAÇÃO NOMEADA (OBRIGATÓRIO)
+  member Member? @relation(
+    "MemberEscalas",
+    fields: [membroId],
+    references: [id],
+    onDelete: SetNull
+  )
 
   @@unique([tipo, dataEvento], name: "tipo_dataEvento")
 }
