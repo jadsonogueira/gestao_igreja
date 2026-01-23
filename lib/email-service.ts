@@ -1,4 +1,4 @@
-import type { GroupType } from "./types";
+import type { GroupType, EscalaTipo } from "./types";
 import * as path from "path";
 import { getFileUrl } from "./s3";
 
@@ -18,6 +18,15 @@ const groupFlowLabels: Record<string, string> = {
   devocional: "Envio devocional",
   visitantes: "Envio visitante",
   membros_sumidos: "Envio sumido",
+};
+
+// Labels de Escala (assunto e corpo)
+const escalaLabels: Record<string, string> = {
+  DIRIGENTE: "Dirigente",
+  LOUVOR: "Louvor",
+  LOUVOR_ESPECIAL: "Louvor Especial",
+  PREGACAO: "Pregação",
+  TESTEMUNHO: "Testemunho",
 };
 
 function getRequiredEnv(name: string): string {
@@ -73,7 +82,6 @@ async function resolveFlyerToHttpUrl(flyerUrl: string): Promise<string> {
   const isPublic = /(^|\/)public\//.test(flyerUrl) || /public\/uploads\//.test(flyerUrl);
   return await getFileUrlAny(flyerUrl, { public: isPublic });
 }
-
 
 // Função para baixar imagem e converter para base64
 async function downloadImageAsBase64(
@@ -195,6 +203,74 @@ export async function sendTriggerEmail(
     return { success: true, id: result.id };
   } catch (error) {
     console.error("[Email] Error sending trigger email:", error);
+    return { success: false, message: String(error) };
+  }
+}
+
+export async function sendScaleTriggerEmail(
+  tipo: EscalaTipo,
+  nomeResponsavel: string,
+  dataEvento: string,
+  horario: string | null,
+  enviarEm: string,
+  mensagem?: string | null
+): Promise<{ success: boolean; message?: string; id?: string }> {
+  try {
+    const resendApiKey = getRequiredEnv("RESEND_API_KEY");
+    const from = getRequiredEnv("RESEND_FROM");
+    const automationTo = getRequiredEnv("AUTOMATION_EMAIL_TO");
+
+    const label = escalaLabels[tipo] ?? "Escala";
+
+    const subject = `[GESTAO_IGREJA]|Escala|tipo=${tipo}|responsavel=${nomeResponsavel}`;
+
+    const htmlBody = `
+      <div style="font-family: Arial, sans-serif; padding: 20px;">
+        <p><strong>fluxo:</strong> Escala</p>
+        <p><strong>tipo:</strong> ${label}</p>
+        <hr/>
+        <p><strong>Responsável:</strong> ${nomeResponsavel ?? ""}</p>
+        <p><strong>Data do evento:</strong> ${dataEvento ?? ""}</p>
+        ${horario ? `<p><strong>Horário:</strong> ${horario}</p>` : ""}
+        <p><strong>Agendado para enviar em:</strong> ${enviarEm ?? ""}</p>
+        <hr/>
+        ${mensagem ? `<p><strong>Mensagem:</strong></p>
+        <pre style="white-space:pre-wrap; font-family: Arial, sans-serif;">${mensagem}</pre>` : ""}
+      </div>
+    `;
+
+    const emailPayload: Record<string, unknown> = {
+      from,
+      to: [automationTo],
+      subject,
+      html: htmlBody,
+    };
+
+    console.log("[Email][Escala] Enviando para:", automationTo, "| from:", from, "| tipo:", tipo);
+
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${resendApiKey}`,
+      },
+      body: JSON.stringify(emailPayload),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+      console.error("[Email][Escala] Resend error:", result);
+      return {
+        success: false,
+        message: (result?.message as string) ?? "Erro ao enviar email",
+      };
+    }
+
+    console.log("[Email][Escala] Enviado com sucesso! ID:", result.id);
+    return { success: true, id: result.id };
+  } catch (error) {
+    console.error("[Email][Escala] Error sending trigger email:", error);
     return { success: false, message: String(error) };
   }
 }
