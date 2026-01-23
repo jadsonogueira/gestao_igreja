@@ -26,7 +26,11 @@ model Member {
   createdCheckinAt   DateTime?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
+
   emailLogs          EmailLog[]
+
+  // ✅ relacionamento inverso (obrigatório)
+  escalas            Escala[]
 }
 
 model MessageGroup {
@@ -116,15 +120,11 @@ model Escala {
   tipo       EscalaTipo
   dataEvento DateTime
 
-  // Opção A: vínculo por nome do banco (quando encontrar)
-  membroId   String?  @db.ObjectId
-  membroNome String?  // espelho do nome do Member (pra exibir rápido)
+  membroId   String? @db.ObjectId
+  membroNome String?
 
-  // Sempre guarda o texto do responsável vindo do Google (fallback)
   nomeResponsavelRaw String?
-
-  // Mensagem opcional fica só no app
-  mensagem String?
+  mensagem           String?
 
   envioAutomatico Boolean      @default(true)
   enviarEm        DateTime
