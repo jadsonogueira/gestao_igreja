@@ -10,6 +10,7 @@ import {
   MessageSquare,
   Send,
   History,
+  CalendarClock,
   Menu,
   X,
   Church,
@@ -21,6 +22,7 @@ const navItems = [
   { href: '/membros', label: 'Membros', icon: Users },
   { href: '/grupos', label: 'Grupos', icon: MessageSquare },
   { href: '/envios', label: 'Envios', icon: Send },
+  { href: '/escala', label: 'Escala', icon: CalendarClock },
   { href: '/historico', label: 'Histórico', icon: History },
 ];
 
