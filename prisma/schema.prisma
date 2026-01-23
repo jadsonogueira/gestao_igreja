@@ -84,6 +84,7 @@ enum EscalaTipo {
   LOUVOR_ESPECIAL
   PREGACAO
   TESTEMUNHO
+  APOIO
 }
 
 enum EscalaStatus {
@@ -110,4 +111,18 @@ model Escala {
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+model GoogleIntegration {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  provider     String   @unique
+
+  accessToken  String
+  refreshToken String?
+  scope        String?
+  tokenType    String?
+  expiryDate   DateTime?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 }
