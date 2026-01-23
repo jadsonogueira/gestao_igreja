@@ -71,11 +71,27 @@ model SystemConfig {
   updatedAt         DateTime @updatedAt
 }
 
+model GoogleIntegration {
+  id           String   @id @default(auto()) @map("_id") @db.ObjectId
+  provider     String   @unique
+
+  accessToken  String
+  refreshToken String?
+  scope        String?
+  tokenType    String?
+  expiryDate   DateTime?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 // =========================
 // ESCALA (culto / programação)
-// - Não envia para membros.
-// - Sempre dispara para AUTOMATION_EMAIL_TO (gatilho do Power Automate).
-// - Controlado pelo scheduler (/api/emails/process) para enviar 1 por minuto.
+// Integra com Google Calendar (import)
+// Vincula responsável pelo NOME (opção A):
+// - tenta achar Member.nome (case-insensitive)
+// - se achar: grava membroId + membroNome
+// - se não achar: grava nomeResponsavelRaw
 // =========================
 
 enum EscalaTipo {
@@ -94,42 +110,6 @@ enum EscalaStatus {
   ERRO
 }
 
-model GoogleIntegration {
-  id           String   @id @default(auto()) @map("_id") @db.ObjectId
-  provider     String   @unique
-
-  accessToken  String
-  refreshToken String?
-  scope        String?
-  tokenType    String?
-  expiryDate   DateTime?
-
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-}
-// =========================
-// ESCALA (culto / programação)
-// Integra com Google Calendar (import)
-// Vincula responsável pelo NOME (opção A):
-// - tenta achar Member.nome (case-insensitive)
-// - se achar: grava membroId + membroNome
-// - se não achar: grava nomeResponsavelRaw
-// =========================
-
-enum EscalaTipo {
-  DIRIGENTE
-  LOUVOR
-  LOUVOR_ESPECIAL
-  PREGACAO
-  TESTEMUNHO
-}
-
-enum EscalaStatus {
-  PENDENTE
-  ENVIANDO
-  ENVIADO
-  ERRO
-}
 model Escala {
   id String @id @default(auto()) @map("_id") @db.ObjectId
 
