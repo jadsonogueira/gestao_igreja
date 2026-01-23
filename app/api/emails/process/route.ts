@@ -3,24 +3,99 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
-import { sendTriggerEmail } from "@/lib/email-service";
+import { sendScaleTriggerEmail, sendTriggerEmail } from "@/lib/email-service";
 import type { GroupType } from "@/lib/types";
 
 export async function POST() {
   try {
-    // Get next pending email
+    const now = new Date();
+
+    // 1) Próximo EmailLog pendente (fila tradicional)
     const pendingEmail = await prisma.emailLog.findFirst({
       where: { status: "pendente" },
       orderBy: { dataAgendamento: "asc" },
     });
 
-    if (!pendingEmail) {
+    // 2) Próximo item de Escala pendente (envio automático) que já venceu
+    const pendingEscala = await prisma.escala.findFirst({
+      where: { status: "PENDENTE", envioAutomatico: true, enviarEm: { lte: now } },
+      orderBy: { enviarEm: "asc" },
+    });
+
+    // Se não tem nada em nenhuma fila
+    if (!pendingEmail && !pendingEscala) {
       return NextResponse.json({
         success: true,
         data: { processed: 0, success: 0, errors: 0 },
-        message: "Nenhum email pendente",
+        message: "Nenhum envio pendente",
       });
     }
+
+    // Decide qual processar primeiro: o que tiver o agendamento mais antigo
+    const emailWhen = pendingEmail?.dataAgendamento ? new Date(pendingEmail.dataAgendamento) : null;
+    const escalaWhen = pendingEscala?.enviarEm ? new Date(pendingEscala.enviarEm) : null;
+
+    const processEscalaFirst =
+      !!pendingEscala && (!pendingEmail || (escalaWhen && emailWhen && escalaWhen <= emailWhen));
+
+    if (processEscalaFirst) {
+      // =========================
+      // PROCESSA ESCALA (1 por tick)
+      // =========================
+      await prisma.escala.update({
+        where: { id: pendingEscala!.id },
+        data: { status: "ENVIANDO" },
+      });
+
+      const agendamento = now.toLocaleString("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+      const dataEventoFmt = new Date(pendingEscala!.dataEvento).toLocaleDateString("pt-BR", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      });
+
+      const result = await sendScaleTriggerEmail(
+        pendingEscala!.tipo as any,
+        pendingEscala!.nomeResponsavel,
+        dataEventoFmt,
+        pendingEscala!.horario ?? null,
+        agendamento,
+        pendingEscala!.mensagem ?? null
+      );
+
+      if (result.success) {
+        await prisma.escala.update({
+          where: { id: pendingEscala!.id },
+          data: { status: "ENVIADO", dataEnvio: now },
+        });
+
+        return NextResponse.json({
+          success: true,
+          data: { processed: 1, success: 1, errors: 0, kind: "escala" },
+        });
+      }
+
+      await prisma.escala.update({
+        where: { id: pendingEscala!.id },
+        data: { status: "ERRO", erroMensagem: result.message ?? "Erro desconhecido" },
+      });
+
+      return NextResponse.json({
+        success: true,
+        data: { processed: 1, success: 0, errors: 1, kind: "escala" },
+      });
+    }
+
+    // =========================
+    // PROCESSA EMAILLOG (1 por tick)
+    // =========================
 
     // Mark as sending
     await prisma.emailLog.update({
