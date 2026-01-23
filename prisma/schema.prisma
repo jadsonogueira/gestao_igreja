@@ -29,8 +29,8 @@ model Member {
 
   emailLogs          EmailLog[]
 
-  // ✅ relacionamento inverso (obrigatório)
-  escalas            Escala[]
+  // ✅ inverso da relação com Escala
+  escalas            Escala[] @relation("MemberEscalas")
 }
 
 model MessageGroup {
@@ -120,11 +120,10 @@ model Escala {
   tipo       EscalaTipo
   dataEvento DateTime
 
-  membroId   String? @db.ObjectId
+  membroId   String?  @db.ObjectId
   membroNome String?
-
   nomeResponsavelRaw String?
-  mensagem           String?
+  mensagem String?
 
   envioAutomatico Boolean      @default(true)
   enviarEm        DateTime
@@ -136,7 +135,8 @@ model Escala {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  member Member? @relation(fields: [membroId], references: [id], onDelete: SetNull)
+  // ✅ relação nomeada
+  member Member? @relation("MemberEscalas", fields: [membroId], references: [id], onDelete: SetNull)
 
   @@unique([tipo, dataEvento], name: "tipo_dataEvento")
 }
