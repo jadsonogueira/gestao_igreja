@@ -236,6 +236,10 @@ export async function POST(req: Request) {
             envioAutomatico: true,
             enviarEm,
             status: "PENDENTE",
+            googleEventId: ev.id ?? null,
+            googleCalendarId: calendarId,
+            source: "GOOGLE",
+            lastSyncedAt: new Date(),
           },
         });
         created++;
