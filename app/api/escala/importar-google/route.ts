@@ -238,7 +238,8 @@ export async function POST(req: Request) {
 
       // enviarEm: por enquanto mantém no dia do evento (00:00Z do YMD)
       // (depois refinamos para "X dias antes às 09:00 Toronto" se você quiser)
-      const enviarEm = dateEvento;
+     const enviarEm = defaultEnviarEmFromDataEvento(dateEvento);
+
 
       const where = {
         tipo_dataEvento: {
