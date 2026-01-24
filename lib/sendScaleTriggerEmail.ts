@@ -21,7 +21,6 @@ function getRequiredEnv(name: string): string {
 }
 
 function escapeHtml(s: string) {
-  // ✅ sem replaceAll (pra evitar problema de target/lib)
   return (s ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -40,6 +39,8 @@ export type SendScaleTriggerEmailParams = {
 
   // dados da escala
   responsavelNome: string;
+
+  // ✅ já vem pronto como DD/MM/AAAA (do próprio evento)
   dataEventoFmt: string;
 
   // quando disparou
@@ -63,12 +64,13 @@ export async function sendScaleTriggerEmail(
     const subjectLabel = "Envio escala";
     const subject = `[GESTAO_IGREJA]|${subjectLabel}|grupo=escala|membro=${params.memberName}`;
 
-    // ✅ formato final exatamente como você pediu
-    // Escala do dia: (dataEvento)
-    // Dirigente: Nome
+    // ✅ formato EXATO que você pediu
+    // - "Escala do dia: (data do evento)"
+    // - "Louvor: Nome" (sem data no fim)
+    // - Mensagem: + 1 quebra de linha apenas
     const base = `Escala do dia: ${params.dataEventoFmt}\n${label}: ${params.responsavelNome}`;
 
-    const msg = params.mensagemOpcional?.trim()
+    const mensagemFinal = params.mensagemOpcional?.trim()
       ? `${base}\nMensagem:\n${params.mensagemOpcional.trim()}`
       : base;
 
@@ -84,7 +86,7 @@ export async function sendScaleTriggerEmail(
         <hr/>
         <p><strong>Mensagem:</strong></p>
         <pre style="white-space:pre-wrap; font-family: Arial, sans-serif;">${escapeHtml(
-          msg
+          mensagemFinal
         )}</pre>
       </div>
     `;
