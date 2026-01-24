@@ -88,7 +88,7 @@ export async function POST() {
         pendingEscala.tipo as any,
         responsavel,
         dataEventoFmt,
-        pendingEscala.horario ?? null,
+        null,
         agendamento,
         pendingEscala.mensagem ?? null
       );
