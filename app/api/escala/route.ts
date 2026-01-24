@@ -51,23 +51,40 @@ export async function GET(request: Request) {
         dataEvento: { gte: timeMin, lt: timeMax },
       },
       orderBy: [{ dataEvento: "asc" }, { tipo: "asc" }],
-      select: {
-        id: true,
-        tipo: true,
-        dataEvento: true,
-        membroNome: true,
-        nomeResponsavelRaw: true,
-        mensagem: true,
-      },
+      // ⚠️ select tipado pelo Prisma pode não aceitar campos legados,
+      // então usamos include total? Não. Melhor: buscar tudo e mapear.
     });
 
-    // ✅ adapta ao que o front espera
-    const items = rows.map((r) => ({
+    const items = (rows as any[]).map((r) => ({
       id: r.id,
       tipo: r.tipo,
-      dataEvento: r.dataEvento.toISOString(),
-      nomeResponsavel: r.membroNome ?? r.nomeResponsavelRaw ?? "—",
+      dataEvento:
+        r.dataEvento instanceof Date
+          ? r.dataEvento.toISOString()
+          : new Date(r.dataEvento).toISOString(),
+
+      // ✅ chave: resolve nome tanto no formato novo quanto no legado
+      nomeResponsavel:
+        r.membroNome ??
+        r.nomeResponsavelRaw ??
+        r.nomeResponsavel ??
+        "—",
+
       mensagem: r.mensagem ?? null,
+
+      // campos úteis na UI
+      status: r.status ?? null,
+      envioAutomatico: r.envioAutomatico ?? null,
+      enviarEm:
+        r.enviarEm instanceof Date
+          ? r.enviarEm.toISOString()
+          : r.enviarEm
+          ? new Date(r.enviarEm).toISOString()
+          : null,
+      erroMensagem: r.erroMensagem ?? null,
+
+      // legado (se quiser mostrar depois)
+      horario: r.horario ?? null,
     }));
 
     return NextResponse.json({
