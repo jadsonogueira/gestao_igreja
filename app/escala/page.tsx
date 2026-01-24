@@ -10,6 +10,7 @@ import {
   Clock,
   ToggleLeft,
   ToggleRight,
+  Send,
 } from "lucide-react";
 
 import Button from "@/components/ui/button";
@@ -139,6 +140,9 @@ export default function EscalaPage() {
   const [mensagem, setMensagem] = useState<string>("");
 
   const [saving, setSaving] = useState(false);
+
+  // ✅ Enviar agora (loading por item)
+  const [sendingNowId, setSendingNowId] = useState<string | null>(null);
 
   const start = useMemo(() => yyyyMMddUTC(new Date()), []);
 
@@ -360,6 +364,38 @@ export default function EscalaPage() {
     selectedMemberId,
   ]);
 
+  // ✅ ENVIAR AGORA (por item)
+  const sendNow = useCallback(
+    async (it: EscalaItem) => {
+      try {
+        setSendingNowId(it.id);
+
+        const res = await fetch(`/api/escala/${it.id}/enviar-agora`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+
+        const json = await res.json().catch(() => ({}));
+
+        if (!res.ok || !json?.ok) {
+          toast.error(json?.error ?? "Falha ao enviar agora");
+          console.error("[enviar-agora] error:", json);
+          return;
+        }
+
+        toast.success("Disparo enviado.");
+        await fetchEscalaOnly();
+      } catch (e) {
+        console.error(e);
+        toast.error("Falha ao enviar agora");
+      } finally {
+        setSendingNowId(null);
+      }
+    },
+    [fetchEscalaOnly]
+  );
+
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       {/* Header */}
@@ -454,6 +490,28 @@ export default function EscalaPage() {
                               ? new Date(it.enviarEm).toLocaleString("pt-BR")
                               : "sem horário"}
                           </div>
+
+                          {/* ✅ Botão ENVIAR AGORA (ao lado do Auto/Manual) */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              sendNow(it);
+                            }}
+                            disabled={sendingNowId === it.id}
+                            className={cn(
+                              "h-8 px-2 rounded-lg border text-xs font-semibold flex items-center gap-1",
+                              sendingNowId === it.id
+                                ? "border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed"
+                                : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                            )}
+                            title="Disparar agora (manual)"
+                          >
+                            <Send className="w-4 h-4" />
+                            {sendingNowId === it.id ? "Enviando..." : "Enviar agora"}
+                          </button>
+
                           <div
                             className={cn(
                               "text-xs font-medium px-2 py-1 rounded-full",
