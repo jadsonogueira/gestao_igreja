@@ -1,14 +1,5 @@
-import type { EscalaTipo } from "./types";
-
-/**
- * ⚠️ IMPORTANTE
- * Este envio é APENAS um gatilho para automações (Power Automate).
- * O e-mail SEMPRE vai para AUTOMATION_EMAIL_TO.
- *
- * Padrão (igual aos grupos / visitantes):
- * - Subject com prefixo [GESTAO_IGREJA]
- * - Body com: fluxo, grupo, Nome, Email, Telefone, Agendamento, Mensagem
- */
+import { getRequiredEnv } from "@/lib/getRequiredEnv";
+import { escapeHtml } from "@/lib/escapeHtml";
 
 const escalaLabels: Record<string, string> = {
   DIRIGENTE: "Dirigente",
@@ -19,25 +10,11 @@ const escalaLabels: Record<string, string> = {
   APOIO: "Apoio",
 };
 
-function getRequiredEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`${name} não configurado`);
-  return v;
-}
-
-function escapeHtml(s: string) {
-  return (s ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
 export type SendScaleTriggerEmailParams = {
-  tipo: EscalaTipo;
+  // etiqueta do tipo de escala
+  tipo: keyof typeof escalaLabels;
 
-  // ✅ sempre deve ser o membro do banco (o responsável)
+  // dados do membro vinculado
   memberName: string;
   memberEmail?: string | null;
   memberPhone?: string | null;
@@ -67,12 +44,12 @@ export async function sendScaleTriggerEmail(
     const subjectLabel = "Envio escala";
     const subject = `[GESTAO_IGREJA]|${subjectLabel}|grupo=escala|membro=${params.memberName}`;
 
-    const escalaDoDia = `${label}: ${params.responsavelNome} (${params.dataEventoFmt})`;
+    const escalaDoDia = `${label}: ${params.responsavelNome}`;
 
-    // ✅ Mensagem (como você pediu): escala do dia + mensagem opcional abaixo
+    // ✅ Mensagem: "Escala do dia: (data)\n<escala>\nMensagem:\n<opcional>"
     const mensagemFinal = params.mensagemOpcional?.trim()
-      ? `Escala do dia:\n${escalaDoDia}\n\nMensagem:\n${params.mensagemOpcional.trim()}`
-      : `Escala do dia:\n${escalaDoDia}`;
+      ? `Escala do dia: (${params.dataEventoFmt})\n${escalaDoDia}\nMensagem:\n${params.mensagemOpcional.trim()}`
+      : `Escala do dia: (${params.dataEventoFmt})\n${escalaDoDia}`;
 
     const htmlBody = `
       <div style="font-family: Arial, sans-serif; padding: 20px;">
@@ -99,25 +76,23 @@ export async function sendScaleTriggerEmail(
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
         Authorization: `Bearer ${resendApiKey}`,
+        "Content-Type": "application/json",
       },
       body: JSON.stringify(emailPayload),
     });
 
-    const result = await response.json().catch(() => ({}));
+    const json = await response.json().catch(() => ({} as any));
 
     if (!response.ok) {
-      console.error("[Email][Escala] Resend error:", result);
       return {
         success: false,
-        message: (result?.message as string) ?? "Erro ao enviar email",
+        message: json?.message ?? `Erro no Resend (${response.status})`,
       };
     }
 
-    return { success: true, id: result?.id };
-  } catch (error) {
-    console.error("[Email][Escala] Error sending trigger email:", error);
-    return { success: false, message: String(error) };
+    return { success: true, id: json?.id };
+  } catch (err: any) {
+    return { success: false, message: String(err?.message ?? err) };
   }
 }
