@@ -227,4 +227,25 @@ export default function EscalaPage() {
     }
   }, [fetchEscalaOnly, importFromGoogle]);
 
-  const fetchMembers = useCallback(async () =>
+  const fetchMembers = useCallback(async () => {
+    try {
+      setMembersLoading(true);
+      const res = await fetch("/api/members?limit=1000", { cache: "no-store" });
+      const json = (await res.json()) as MembersResponse;
+
+      if (!json?.ok) {
+        toast.error(json?.error ?? "Falha ao carregar membros");
+        setMembers([]);
+        return;
+      }
+
+      setMembers(json.items ?? []);
+    } catch (e) {
+      console.error(e);
+      toast.error("Falha ao carregar membros");
+      setMembers([]);
+    } finally {
+      setMembersLoading(false);
+    }
+  }, []);
+
