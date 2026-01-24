@@ -1,19 +1,13 @@
 import prisma from "@/lib/db";
 import { sendScaleTriggerEmail } from "@/lib/sendScaleTriggerEmail";
 
-const APP_TIMEZONE = process.env.APP_TIMEZONE ?? "America/Toronto";
-
-function fmtDateInTZ(d: Date) {
-  const parts = new Intl.DateTimeFormat("pt-BR", {
-    timeZone: APP_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(d);
-
-  const day = parts.find((p) => p.type === "day")?.value ?? "";
-  const month = parts.find((p) => p.type === "month")?.value ?? "";
-  const year = parts.find((p) => p.type === "year")?.value ?? "";
+// ✅ Para "data do evento" (all-day) não pode usar TZ do Canadá,
+// porque dataEvento está salvo como 00:00Z e vira "dia anterior" em Toronto.
+// Então formatamos pelo UTC (dia/mês/ano do próprio registro).
+function fmtDateUTC(d: Date) {
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const year = String(d.getUTCFullYear());
   return `${day}/${month}/${year}`;
 }
 
@@ -92,8 +86,12 @@ export async function processEscalaEmail(
     data: { status: "ENVIANDO", erroMensagem: null },
   });
 
-  const responsavelNome = escala.membroNome ?? escala.nomeResponsavelRaw ?? member.nome ?? "—";
-  const dataEventoFmt = fmtDateInTZ(escala.dataEvento);
+  const responsavelNome =
+    escala.membroNome ?? escala.nomeResponsavelRaw ?? member.nome ?? "—";
+
+  // ✅ data do evento precisa ser "o dia do registro", não o dia em Toronto
+  const dataEventoFmt = fmtDateUTC(escala.dataEvento);
+
   const agendamentoDate = sendAt ?? escala.enviarEm ?? now;
 
   try {
