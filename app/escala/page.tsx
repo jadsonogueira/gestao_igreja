@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { RefreshCw, CalendarDays } from "lucide-react";
+import { RefreshCw, CalendarDays, DownloadCloud } from "lucide-react";
 import Button from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { EscalaTipo } from "@/lib/types";
@@ -22,12 +22,29 @@ type ApiResponse = {
   items?: EscalaItem[];
 };
 
+type ImportResponse = {
+  ok: boolean;
+  error?: string;
+  details?: string;
+  reason?: string;
+  range?: { days: number; timeMin: string; timeMax: string; timeZoneApp?: string };
+  totals?: {
+    googleEvents: number;
+    parsed: number;
+    created: number;
+    updated: number;
+    ignored: number;
+    matchedMembers?: number;
+  };
+};
+
 const tipoLabel: Record<string, string> = {
   DIRIGENTE: "Dirigente",
   LOUVOR: "Louvor",
   LOUVOR_ESPECIAL: "Louvor Especial",
   PREGACAO: "Pregação",
   TESTEMUNHO: "Testemunho",
+  APOIO: "Apoio",
 };
 
 function yyyyMMddUTC(d = new Date()) {
@@ -38,7 +55,6 @@ function yyyyMMddUTC(d = new Date()) {
 }
 
 function toBRDateFromYYYYMMDD(s: string) {
-  // s = YYYY-MM-DD
   const [y, m, d] = s.split("-");
   return `${d}/${m}/${y}`;
 }
@@ -53,6 +69,7 @@ export default function EscalaPage() {
   const [days, setDays] = useState<number>(60);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   const [items, setItems] = useState<EscalaItem[]>([]);
 
@@ -91,6 +108,41 @@ export default function EscalaPage() {
     }
   }, [days, start]);
 
+  const importFromGoogle = useCallback(async () => {
+    try {
+      setImporting(true);
+
+      const res = await fetch("/api/escala/importar-google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ days }),
+      });
+
+      const json = (await res.json()) as ImportResponse;
+
+      if (!res.ok || !json?.ok) {
+        console.error("Import error:", json);
+        toast.error(json?.error ?? "Falha ao importar do Google Calendar");
+        return;
+      }
+
+      const t = json.totals;
+      const msg = t
+        ? `Importado do Google: ${t.created} criados, ${t.updated} atualizados, ${t.ignored} ignorados (eventos: ${t.googleEvents}).`
+        : "Importação concluída.";
+
+      toast.success(msg);
+
+      // após importar, recarrega a lista
+      await fetchEscala();
+    } catch (e) {
+      console.error(e);
+      toast.error("Falha ao importar do Google Calendar");
+    } finally {
+      setImporting(false);
+    }
+  }, [days, fetchEscala]);
+
   useEffect(() => {
     fetchEscala();
   }, [fetchEscala]);
@@ -111,13 +163,30 @@ export default function EscalaPage() {
             className="h-11 border border-gray-200 rounded-lg px-3 bg-white text-gray-900"
             value={days}
             onChange={(e) => setDays(Number(e.target.value))}
+            disabled={refreshing || importing}
           >
             <option value={30}>30 dias</option>
             <option value={60}>60 dias</option>
             <option value={90}>90 dias</option>
           </select>
 
-          <Button variant="secondary" onClick={fetchEscala} loading={refreshing}>
+          <Button
+            variant="secondary"
+            onClick={importFromGoogle}
+            loading={importing}
+            disabled={refreshing || importing}
+            title="Importa eventos do Google Calendar para gerar/atualizar escalas no sistema"
+          >
+            <DownloadCloud className={cn("w-4 h-4", importing && "animate-pulse")} />
+            Importar do Google
+          </Button>
+
+          <Button
+            variant="secondary"
+            onClick={fetchEscala}
+            loading={refreshing}
+            disabled={refreshing || importing}
+          >
             <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
             Atualizar
           </Button>
@@ -144,9 +213,7 @@ export default function EscalaPage() {
                     <div className="text-lg font-semibold text-gray-900">
                       {toBRDateFromYYYYMMDD(date)}
                     </div>
-                    <div className="text-sm text-gray-500">
-                      {list.length} item(ns)
-                    </div>
+                    <div className="text-sm text-gray-500">{list.length} item(ns)</div>
                   </div>
 
                   <div className="mt-3 space-y-2">
@@ -159,14 +226,13 @@ export default function EscalaPage() {
                           {tipoLabel[it.tipo] ?? it.tipo}:{" "}
                           <span className="font-semibold">{it.nomeResponsavel}</span>
                         </div>
+
                         {it.mensagem ? (
                           <div className="text-sm text-gray-600 sm:max-w-[55%] sm:text-right">
                             {it.mensagem}
                           </div>
                         ) : (
-                          <div className="text-sm text-gray-400 sm:text-right">
-                            —
-                          </div>
+                          <div className="text-sm text-gray-400 sm:text-right">—</div>
                         )}
                       </div>
                     ))}
