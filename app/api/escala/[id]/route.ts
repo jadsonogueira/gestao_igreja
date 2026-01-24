@@ -24,9 +24,31 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     const data: any = {};
     if (body?.tipo) data.tipo = String(body.tipo);
     if (body?.dataEvento) data.dataEvento = new Date(body.dataEvento);
-    if (body?.horario !== undefined) data.horario = body.horario ? String(body.horario) : null;
-    if (body?.nomeResponsavel !== undefined)
-      data.nomeResponsavel = String(body.nomeResponsavel ?? '').trim();
+
+    // ✅ Campos antigos removidos do schema (horario, nomeResponsavel)
+    // Mantemos compatibilidade: se vier "nomeResponsavel", gravamos em nomeResponsavelRaw/membroNome.
+    if (body?.nomeResponsavel !== undefined) {
+      const v = String(body.nomeResponsavel ?? '').trim();
+      data.nomeResponsavelRaw = v || null;
+      data.membroNome = v || null;
+      data.membroId = null; // se virou texto cru, desvincula do Member
+    }
+
+    if (body?.nomeResponsavelRaw !== undefined) {
+      const v = String(body.nomeResponsavelRaw ?? '').trim();
+      data.nomeResponsavelRaw = v || null;
+    }
+
+    if (body?.membroNome !== undefined) {
+      const v = String(body.membroNome ?? '').trim();
+      data.membroNome = v || null;
+    }
+
+    if (body?.membroId !== undefined) {
+      const v = String(body.membroId ?? '').trim();
+      data.membroId = v ? v : null;
+    }
+
     if (body?.mensagem !== undefined) data.mensagem = body.mensagem ? String(body.mensagem) : null;
     if (body?.envioAutomatico !== undefined) data.envioAutomatico = !!body.envioAutomatico;
     if (body?.enviarEm) data.enviarEm = new Date(body.enviarEm);
