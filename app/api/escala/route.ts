@@ -71,25 +71,32 @@ export async function GET(request: Request) {
       // se não existir enviarEm ainda, usa dataEvento como fallback
       const enviarEmISO = toISODate(r.enviarEm) ?? dataEventoISO;
 
+      // ✅ nome final (o que aparece no card)
+      const nomeResponsavel =
+        r.membroNome ??
+        r.nomeResponsavelRaw ??
+        r.nomeResponsavel ??
+        "—";
+
       return {
         id: r.id,
         tipo: r.tipo,
         dataEvento: dataEventoISO,
 
-        // ✅ resolve nome tanto no formato novo quanto no legado
-        nomeResponsavel:
-          r.membroNome ??
-          r.nomeResponsavelRaw ??
-          r.nomeResponsavel ??
-          "—",
-
+        // ✅ o front usa isso para exibir
+        nomeResponsavel,
         mensagem: r.mensagem ?? null,
 
-        // ✅ campos que a UI da etapa 3 precisa
+        // ✅ o front precisa disso para marcar "vinculado"
+        membroId: r.membroId ?? null,
+        membroNome: r.membroNome ?? null,
+        nomeResponsavelRaw: r.nomeResponsavelRaw ?? null,
+
+        // ✅ etapa 3 (programação)
         envioAutomatico,
         enviarEm: enviarEmISO,
 
-        // opcionais (se quiser mostrar depois)
+        // extras úteis
         status: r.status ?? null,
         erroMensagem: r.erroMensagem ?? null,
         horario: r.horario ?? null,
