@@ -61,6 +61,7 @@ export async function GET(request: Request) {
       },
     });
 
+    // ✅ adapta ao que o front espera
     const items = rows.map((r) => ({
       id: r.id,
       tipo: r.tipo,
