@@ -8,29 +8,26 @@ import { getValidGoogleAccessToken } from "@/lib/googleCalendar";
 const APP_TIMEZONE = process.env.APP_TIMEZONE ?? "America/Toronto";
 
 function startOfDayUTC(d: Date) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+  return new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0)
+  );
 }
 
 /**
- * Regra padrão: enviar 1 dia antes do evento, às 10:00 no fuso do app.
- * (Toronto costuma ser UTC-5 ou UTC-4 conforme DST. Aqui vamos usar uma regra simples e estável.)
- *
- * Para evitar surpresa com DST, a Etapa 3 permite editar manualmente no app.
+ * Regra padrão: enviar 6 dias antes do evento, às 15:00 UTC (estável).
+ * (Em Toronto isso dá ~10:00 no inverno, ~11:00 no verão por causa do DST).
  */
 function defaultEnviarEmFromDataEvento(dateEventoUTC00: Date) {
-  // dateEvento vem normalizado como 00:00Z (seu código já faz isso)
   const d = startOfDayUTC(dateEventoUTC00);
 
-  // 1 dia antes
+  // ✅ 6 dias antes
   d.setUTCDate(d.getUTCDate() - 6);
 
-  // 10h Toronto (aprox) -> 15h UTC no inverno / 14h UTC no verão.
-  // Vamos colocar 15h UTC como padrão estável.
+  // horário estável
   d.setUTCHours(15, 0, 0, 0);
 
   return d;
 }
-
 
 type GoogleEvent = {
   id?: string;
@@ -46,12 +43,11 @@ function cleanSpaces(s: string) {
 function normalizeBasic(s: string) {
   return cleanSpaces(s)
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // remove acentos
+    .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
 }
 
 function stripCommonPrefixes(name: string) {
-  // remove títulos comuns para casar com Member.nome
   let s = cleanSpaces(name);
 
   s = s.replace(/^pr\.?\s+/i, "");
@@ -83,12 +79,10 @@ function parseRoleAndName(titleRaw: string) {
 
   const roleRaw = cleanSpaces(m[1]);
   const nameRaw = cleanSpaces(m[2]);
-
   if (!roleRaw || !nameRaw) return null;
 
   const roleKey = normalizeBasic(roleRaw);
   const roleEnum = roleMap[roleKey];
-
   if (!roleEnum) return null;
 
   return { roleEnum, roleRaw, nameRaw, title };
@@ -105,16 +99,14 @@ function getYMDInTZ(date: Date, timeZone: string) {
   const y = parts.find((p) => p.type === "year")?.value ?? "1970";
   const m = parts.find((p) => p.type === "month")?.value ?? "01";
   const d = parts.find((p) => p.type === "day")?.value ?? "01";
-  return `${y}-${m}-${d}`; // YYYY-MM-DD
+  return `${y}-${m}-${d}`;
 }
 
 function toDateEventoFromGoogleStart(ev: GoogleEvent) {
-  // All-day (YYYY-MM-DD) -> mantém o dia fixo
   if (ev.start?.date) {
     return new Date(`${ev.start.date}T00:00:00.000Z`);
   }
 
-  // dateTime -> normaliza para o dia no fuso do app (Toronto)
   if (ev.start?.dateTime) {
     const d = new Date(ev.start.dateTime);
     if (Number.isNaN(d.getTime())) return null;
@@ -129,8 +121,6 @@ function toDateEventoFromGoogleStart(ev: GoogleEvent) {
 function makeRange(days: number) {
   const now = new Date();
   const ymd = getYMDInTZ(now, APP_TIMEZONE);
-
-  // começamos do "hoje" no fuso do app, guardando como 00:00Z daquele YMD
   const start = new Date(`${ymd}T00:00:00.000Z`);
   const end = new Date(start.getTime() + days * 24 * 60 * 60 * 1000);
 
@@ -148,7 +138,11 @@ export async function POST(req: Request) {
 
     if (!calendarId) {
       return NextResponse.json(
-        { ok: false, error: "GOOGLE_CALENDAR_ID não configurado (ou envie calendarId no body)" },
+        {
+          ok: false,
+          error:
+            "GOOGLE_CALENDAR_ID não configurado (ou envie calendarId no body)",
+        },
         { status: 400 }
       );
     }
@@ -178,7 +172,11 @@ export async function POST(req: Request) {
         {
           ok: false,
           reason: "google_api_error",
-          details: { status: r.status, statusText: r.statusText, body: txt },
+          details: {
+            status: r.status,
+            statusText: r.statusText,
+            body: txt,
+          },
         },
         { status: 500 }
       );
@@ -187,7 +185,7 @@ export async function POST(req: Request) {
     const data = await r.json();
     const events: GoogleEvent[] = Array.isArray(data?.items) ? data.items : [];
 
-    // ✅ Carrega members uma vez e cria índice normalizado (melhora match e performance)
+    // Members ativos (para auto-vínculo)
     const members = await prisma.member.findMany({
       where: { ativo: true },
       select: { id: true, nome: true },
@@ -203,6 +201,7 @@ export async function POST(req: Request) {
     let parsed = 0;
     let ignored = 0;
     let matchedMembers = 0;
+    let preservedLinks = 0; // ✅ quantos vínculos foram preservados no pull
 
     const sampleParsed: any[] = [];
     const ignoredList: any[] = [];
@@ -213,14 +212,16 @@ export async function POST(req: Request) {
 
       if (!parsedResult) {
         ignored++;
-        if (ignoredList.length < 50) ignoredList.push({ title, reason: "title_not_matching_or_empty" });
+        if (ignoredList.length < 50)
+          ignoredList.push({ title, reason: "title_not_matching_or_empty" });
         continue;
       }
 
       const dateEvento = toDateEventoFromGoogleStart(ev);
       if (!dateEvento) {
         ignored++;
-        if (ignoredList.length < 50) ignoredList.push({ title, reason: "date_invalid" });
+        if (ignoredList.length < 50)
+          ignoredList.push({ title, reason: "date_invalid" });
         continue;
       }
 
@@ -228,18 +229,15 @@ export async function POST(req: Request) {
 
       const { roleEnum, roleRaw, nameRaw } = parsedResult;
 
-      // ✅ tenta casar Member por nome (com remoção de prefixos e normalização)
+      // tenta casar member pelo nome (auto-vínculo)
       const cleaned = stripCommonPrefixes(nameRaw);
       const key1 = normalizeBasic(nameRaw);
       const key2 = normalizeBasic(cleaned);
+      const memberMatched = memberIndex.get(key2) ?? memberIndex.get(key1) ?? null;
 
-      const member = memberIndex.get(key2) ?? memberIndex.get(key1) ?? null;
-      if (member) matchedMembers++;
+      if (memberMatched) matchedMembers++;
 
-      // enviarEm: por enquanto mantém no dia do evento (00:00Z do YMD)
-      // (depois refinamos para "X dias antes às 09:00 Toronto" se você quiser)
-     const enviarEm = defaultEnviarEmFromDataEvento(dateEvento);
-
+      const enviarEm = defaultEnviarEmFromDataEvento(dateEvento);
 
       const where = {
         tipo_dataEvento: {
@@ -251,13 +249,14 @@ export async function POST(req: Request) {
       const existing = await prisma.escala.findUnique({ where });
 
       if (!existing) {
+        // ✅ NOVO: cria já com auto-vínculo (se encontrar)
         await prisma.escala.create({
           data: {
             tipo: roleEnum as any,
             dataEvento: dateEvento,
-            membroId: member?.id ?? null,
-            membroNome: member?.nome ?? null,
-            nomeResponsavelRaw: nameRaw, // ✅ salva o texto cru vindo do calendar
+            membroId: memberMatched?.id ?? null,
+            membroNome: memberMatched?.nome ?? null,
+            nomeResponsavelRaw: nameRaw,
             mensagem: null,
             envioAutomatico: true,
             enviarEm,
@@ -270,19 +269,42 @@ export async function POST(req: Request) {
         });
         created++;
       } else {
-        // ✅ atualiza apenas dados de vínculo e raw. Não mexe em mensagem/status.
+        /**
+         * ✅ REGRA DE OURO (Problema 3):
+         * Se já existe membroId, NÃO altere o vínculo no pull do Google.
+         * Só tenta auto-vincular quando está vazio.
+         */
+        const hasLink = !!existing.membroId;
+
+        const finalMemberId = hasLink
+          ? existing.membroId
+          : (memberMatched?.id ?? null);
+
+        const finalMemberNome = hasLink
+          ? (existing.membroNome ?? null)
+          : (memberMatched?.nome ?? null);
+
+        if (hasLink) preservedLinks++;
+
+        // ✅ Atualiza campos do Google e raw, mas preserva vínculo se já existia
         await prisma.escala.update({
           where,
           data: {
-            membroId: member?.id ?? null,
-            membroNome: member?.nome ?? null,
+            // vínculo (preservado ou preenchido somente se estava vazio)
+            membroId: finalMemberId,
+            membroNome: finalMemberNome,
+
+            // manter o texto cru do calendar sempre atualizado (ajuda auditoria)
             nomeResponsavelRaw: nameRaw,
+
+            // não mexe em mensagem/status aqui
             googleEventId: ev.id ?? existing.googleEventId ?? null,
             googleCalendarId: calendarId,
             source: "GOOGLE",
             lastSyncedAt: new Date(),
           },
         });
+
         updated++;
       }
 
@@ -294,7 +316,10 @@ export async function POST(req: Request) {
           nameRaw,
           cleaned,
           dateEvento: dateEvento.toISOString(),
-          matchedMember: member?.nome ?? null,
+          matchedMember: memberMatched?.nome ?? null,
+          note: existing?.membroId
+            ? "link_preserved"
+            : (memberMatched ? "linked_by_name" : "still_unlinked"),
         });
       }
     }
@@ -309,6 +334,7 @@ export async function POST(req: Request) {
         updated,
         ignored,
         matchedMembers,
+        preservedLinks,
       },
       sampleParsed,
       ignored: ignoredList,
@@ -316,7 +342,11 @@ export async function POST(req: Request) {
   } catch (err: any) {
     console.error(err);
     return NextResponse.json(
-      { ok: false, error: "Erro ao importar do Google", details: String(err?.message ?? err) },
+      {
+        ok: false,
+        error: "Erro ao importar do Google",
+        details: String(err?.message ?? err),
+      },
       { status: 500 }
     );
   }
