@@ -221,29 +221,29 @@ export default function EscalaPage() {
     }
   }, [fetchEscalaOnly, importFromGoogle]);
 
- const fetchMembers = useCallback(async () => {
-  try {
-    setMembersLoading(true);
+  // ✅ Members: rota correta para options
+  const fetchMembers = useCallback(async () => {
+    try {
+      setMembersLoading(true);
 
-    // ✅ rota correta para options
-    const res = await fetch("/api/members/options", { cache: "no-store" });
-    const json = (await res.json()) as MembersResponse;
+      const res = await fetch("/api/members/options", { cache: "no-store" });
+      const json = (await res.json()) as MembersResponse;
 
-    if (!json?.ok) {
-      toast.error(json?.error ?? "Falha ao carregar membros");
+      if (!json?.ok) {
+        toast.error(json?.error ?? "Falha ao carregar membros");
+        setMembers([]);
+        return;
+      }
+
+      setMembers(json.items ?? []);
+    } catch (e) {
+      console.error(e);
+      toast.error("Falha ao carregar membros");
       setMembers([]);
-      return;
+    } finally {
+      setMembersLoading(false);
     }
-
-    setMembers(json.items ?? []);
-  } catch (e) {
-    console.error(e);
-    toast.error("Falha ao carregar membros");
-    setMembers([]);
-  } finally {
-    setMembersLoading(false);
-  }
-}, []);
+  }, []);
 
   const initialLoad = useCallback(async () => {
     try {
@@ -480,8 +480,9 @@ export default function EscalaPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/30" onClick={closeModal} />
 
-          <div className="relative w-[min(780px,92vw)] bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-4">
+          {/* ✅ modal com altura máxima e layout em coluna */}
+          <div className="relative w-[min(780px,92vw)] max-h-[90vh] bg-white rounded-2xl shadow-xl border border-gray-100 flex flex-col">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-4 shrink-0">
               <div>
                 <div className="text-lg font-semibold text-gray-900">Editar escala</div>
                 <div className="text-sm text-gray-600 mt-1">
@@ -499,7 +500,8 @@ export default function EscalaPage() {
               </button>
             </div>
 
-            <div className="px-5 py-5 space-y-5">
+            {/* ✅ conteúdo com scroll */}
+            <div className="px-5 py-5 space-y-5 overflow-y-auto">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Responsável (texto livre)
@@ -600,7 +602,8 @@ export default function EscalaPage() {
               </div>
             </div>
 
-            <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
+            {/* ✅ rodapé fixo (botões nunca somem) */}
+            <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2 shrink-0">
               <Button variant="secondary" onClick={closeModal} disabled={saving}>
                 Cancelar
               </Button>
