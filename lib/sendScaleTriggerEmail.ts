@@ -1,31 +1,20 @@
-import { sendEmail } from "@/lib/email"; // ajuste se seu helper tiver outro caminho
 import prisma from "@/lib/db";
+import { sendEmail } from "@/lib/email"; // ajuste se o seu helper tiver outro caminho
 
 const AUTOMATION_EMAIL_TO = process.env.AUTOMATION_EMAIL_TO || "jadsonnogueira@msn.com";
 
 function replaceAllCompat(s: string, search: string, replacement: string) {
-  // compatível com targets antigos (sem String.replaceAll)
   return s.split(search).join(replacement);
 }
 
 function escapeHtml(s: string) {
-  return replaceAllCompat(
-    replaceAllCompat(
-      replaceAllCompat(
-        replaceAllCompat(
-          replaceAllCompat(s, "&", "&amp;"),
-          "<",
-          "&lt;"
-        ),
-        ">",
-        "&gt;"
-      ),
-      '"',
-      "&quot;"
-    ),
-    "'",
-    "&#039;"
-  );
+  let out = String(s ?? "");
+  out = replaceAllCompat(out, "&", "&amp;");
+  out = replaceAllCompat(out, "<", "&lt;");
+  out = replaceAllCompat(out, ">", "&gt;");
+  out = replaceAllCompat(out, '"', "&quot;");
+  out = replaceAllCompat(out, "'", "&#039;");
+  return out;
 }
 
 function formatDateTimeToronto(date: Date) {
@@ -58,7 +47,7 @@ export async function sendScaleTriggerEmail(escalaId: string) {
   const responsavel =
     escala.membroNome ||
     escala.nomeResponsavelRaw ||
-    (escala.member?.nome ?? null) ||
+    escala.member?.nome ||
     "N/D";
 
   const subject = `ESCALA | ${escala.tipo} | ${formatDateTimeToronto(escala.dataEvento)}`;
@@ -71,7 +60,24 @@ export async function sendScaleTriggerEmail(escalaId: string) {
     `ESCALA_ID: ${escala.id}`,
   ].join("\n");
 
-  const bodyHtml = `
-    <h2>Escala</h2>
-    <ul>
-      <li><b>T
+  // HTML montado por array para evitar erro de crase/template multilinha
+  const bodyHtml = [
+    "<h2>Escala</h2>",
+    "<ul>",
+    `<li><b>Tipo:</b> ${escapeHtml(String(escala.tipo))}</li>`,
+    `<li><b>Data do evento:</b> ${escapeHtml(formatDateTimeToronto(escala.dataEvento))}</li>`,
+    `<li><b>Responsável:</b> ${escapeHtml(String(responsavel))}</li>`,
+    `<li><b>Mensagem:</b> ${escapeHtml(String(escala.mensagem ?? ""))}</li>`,
+    `<li><b>Escala ID:</b> ${escapeHtml(String(escala.id))}</li>`,
+    "</ul>",
+  ].join("");
+
+  await sendEmail({
+    to: AUTOMATION_EMAIL_TO,
+    subject,
+    text: bodyText,
+    html: bodyHtml,
+  });
+
+  return { ok: true };
+}
