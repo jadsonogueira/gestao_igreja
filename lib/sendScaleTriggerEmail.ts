@@ -1,5 +1,9 @@
-import { getRequiredEnv } from "@/lib/getRequiredEnv";
-import { escapeHtml } from "@/lib/escapeHtml";
+import type { EscalaTipo } from "./types";
+
+/**
+ * Gatilho para Power Automate.
+ * SEMPRE envia para AUTOMATION_EMAIL_TO.
+ */
 
 const escalaLabels: Record<string, string> = {
   DIRIGENTE: "Dirigente",
@@ -10,21 +14,36 @@ const escalaLabels: Record<string, string> = {
   APOIO: "Apoio",
 };
 
-export type SendScaleTriggerEmailParams = {
-  // etiqueta do tipo de escala
-  tipo: keyof typeof escalaLabels;
+function getRequiredEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`${name} não configurado`);
+  return v;
+}
 
-  // dados do membro vinculado
+function escapeHtml(s: string) {
+  // ✅ sem replaceAll (pra evitar problema de target/lib)
+  return (s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+export type SendScaleTriggerEmailParams = {
+  tipo: EscalaTipo;
+
+  // membro vinculado (do banco)
   memberName: string;
   memberEmail?: string | null;
   memberPhone?: string | null;
 
-  // dados do evento
-  responsavelNome: string; // nome que veio do vínculo (ou raw)
-  dataEventoFmt: string; // já formatado (ex: 24/01/2026)
+  // dados da escala
+  responsavelNome: string;
+  dataEventoFmt: string;
 
-  // agendamento (quando o scheduler está disparando)
-  agendamento: string; // preferencialmente ISO
+  // quando disparou
+  agendamento: string;
 
   // mensagem opcional do app
   mensagemOpcional?: string | null;
@@ -40,20 +59,19 @@ export async function sendScaleTriggerEmail(
 
     const label = escalaLabels[params.tipo] ?? "Escala";
 
-    // ✅ mesmo padrão dos grupos (ex: visitantes)
+    // padrão semelhante aos grupos
     const subjectLabel = "Envio escala";
     const subject = `[GESTAO_IGREJA]|${subjectLabel}|grupo=escala|membro=${params.memberName}`;
 
-    const escalaDoDia = `${label}: ${params.responsavelNome}`;
+    const escalaDoDia = `${label}: ${params.responsavelNome} (${params.dataEventoFmt})`;
 
-    // ✅ Mensagem: "Escala do dia: (data)\n<escala>\nMensagem:\n<opcional>"
     const mensagemFinal = params.mensagemOpcional?.trim()
-      ? `Escala do dia: (${params.dataEventoFmt})\n${escalaDoDia}\nMensagem:\n${params.mensagemOpcional.trim()}`
-      : `Escala do dia: (${params.dataEventoFmt})\n${escalaDoDia}`;
+      ? `Escala do dia:\n${escalaDoDia}\n\nMensagem:\n${params.mensagemOpcional.trim()}`
+      : `Escala do dia:\n${escalaDoDia}`;
 
     const htmlBody = `
       <div style="font-family: Arial, sans-serif; padding: 20px;">
-        <p><strong>fluxo:</strong> ${subjectLabel}</p>
+        <p><strong>fluxo:</strong> ${escapeHtml(subjectLabel)}</p>
         <p><strong>grupo:</strong> escala</p>
         <hr/>
         <p><strong>Nome:</strong> ${escapeHtml(params.memberName ?? "")}</p>
@@ -62,37 +80,39 @@ export async function sendScaleTriggerEmail(
         <p><strong>Agendamento:</strong> ${escapeHtml(params.agendamento ?? "")}</p>
         <hr/>
         <p><strong>Mensagem:</strong></p>
-        <pre style="white-space:pre-wrap; font-family: Arial, sans-serif;">${escapeHtml(mensagemFinal)}</pre>
+        <pre style="white-space:pre-wrap; font-family: Arial, sans-serif;">${escapeHtml(
+          mensagemFinal
+        )}</pre>
       </div>
     `;
-
-    const emailPayload: Record<string, unknown> = {
-      from,
-      to: [automationTo],
-      subject,
-      html: htmlBody,
-    };
 
     const response = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${resendApiKey}`,
         "Content-Type": "application/json",
+        Authorization: `Bearer ${resendApiKey}`,
       },
-      body: JSON.stringify(emailPayload),
+      body: JSON.stringify({
+        from,
+        to: [automationTo],
+        subject,
+        html: htmlBody,
+      }),
     });
 
-    const json = await response.json().catch(() => ({} as any));
+    const result = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+      console.error("[Email][Escala] Resend error:", result);
       return {
         success: false,
-        message: json?.message ?? `Erro no Resend (${response.status})`,
+        message: (result?.message as string) ?? "Erro ao enviar email",
       };
     }
 
-    return { success: true, id: json?.id };
-  } catch (err: any) {
-    return { success: false, message: String(err?.message ?? err) };
+    return { success: true, id: result?.id };
+  } catch (error) {
+    console.error("[Email][Escala] Error:", error);
+    return { success: false, message: String(error) };
   }
 }
