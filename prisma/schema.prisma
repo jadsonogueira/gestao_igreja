@@ -109,10 +109,15 @@ model Escala {
   tipo       EscalaTipo
   dataEvento DateTime
 
-  membroId            String? @db.ObjectId
-  membroNome          String?
-  nomeResponsavelRaw  String?
-  mensagem            String?
+  membroId           String? @db.ObjectId
+  membroNome         String?
+  nomeResponsavelRaw String?
+  mensagem           String?
+
+  // ✅ CAMPOS LEGADOS (existem documentos antigos no Mongo)
+  // Apenas compatibilidade de leitura. Não use mais como regra nova.
+  nomeResponsavel String?
+  horario         String?
 
   envioAutomatico Boolean      @default(true)
   enviarEm        DateTime
