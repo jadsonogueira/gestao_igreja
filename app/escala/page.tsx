@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { RefreshCw, CalendarDays, Link2, X } from "lucide-react";
+import { RefreshCw, CalendarDays, Link2, X, Clock, ToggleLeft, ToggleRight } from "lucide-react";
 import Button from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { EscalaTipo } from "@/lib/types";
@@ -13,6 +13,10 @@ type EscalaItem = {
   dataEvento: string; // ISO
   nomeResponsavel: string;
   mensagem?: string | null;
+
+  // ✅ Etapa 3
+  envioAutomatico?: boolean;
+  enviarEm?: string; // ISO
 };
 
 type ApiResponse = {
@@ -61,6 +65,28 @@ function dateKeyFromISO(iso: string) {
   return yyyyMMddUTC(d);
 }
 
+// Converte ISO -> string do input datetime-local (YYYY-MM-DDTHH:mm)
+function isoToLocalInputValue(iso?: string) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+
+// Converte input datetime-local -> ISO UTC
+function localInputToISO(value: string) {
+  // value: "YYYY-MM-DDTHH:mm"
+  // new Date(value) assume local timezone
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
 export default function EscalaPage() {
   const [days, setDays] = useState<number>(60);
   const [loading, setLoading] = useState(true);
@@ -75,9 +101,17 @@ export default function EscalaPage() {
   // Modal
   const [open, setOpen] = useState(false);
   const [selectedItem, setSelectedItem] = useState<EscalaItem | null>(null);
+
+  // vínculo
   const [memberSearch, setMemberSearch] = useState("");
   const [selectedMemberId, setSelectedMemberId] = useState<string>("");
   const [nomeResponsavelRaw, setNomeResponsavelRaw] = useState<string>("");
+
+  // ✅ Etapa 3
+  const [envioAutomatico, setEnvioAutomatico] = useState<boolean>(true);
+  const [enviarEmLocal, setEnviarEmLocal] = useState<string>(""); // datetime-local
+  const [mensagem, setMensagem] = useState<string>("");
+
   const [saving, setSaving] = useState(false);
 
   const start = useMemo(() => yyyyMMddUTC(new Date()), []);
@@ -142,27 +176,37 @@ export default function EscalaPage() {
   }, [fetchEscala]);
 
   useEffect(() => {
-    // carrega membros uma vez ao abrir a tela
     fetchMembers();
   }, [fetchMembers]);
 
-  const openLinkModal = useCallback(
-    (it: EscalaItem) => {
-      setSelectedItem(it);
-      setNomeResponsavelRaw(it.nomeResponsavel ?? "");
-      setSelectedMemberId(""); // começa vazio; você pode escolher manualmente
-      setMemberSearch("");
-      setOpen(true);
-    },
-    []
-  );
+  const openModal = useCallback((it: EscalaItem) => {
+    setSelectedItem(it);
+
+    // vínculo
+    setNomeResponsavelRaw(it.nomeResponsavel ?? "");
+    setSelectedMemberId("");
+    setMemberSearch("");
+
+    // ✅ Etapa 3 (defaults do item)
+    setEnvioAutomatico(it.envioAutomatico ?? true);
+    setEnviarEmLocal(isoToLocalInputValue(it.enviarEm));
+    setMensagem((it.mensagem ?? "").toString());
+
+    setOpen(true);
+  }, []);
 
   const closeModal = useCallback(() => {
     setOpen(false);
     setSelectedItem(null);
+
     setSelectedMemberId("");
     setMemberSearch("");
     setNomeResponsavelRaw("");
+
+    setEnvioAutomatico(true);
+    setEnviarEmLocal("");
+    setMensagem("");
+
     setSaving(false);
   }, []);
 
@@ -172,18 +216,33 @@ export default function EscalaPage() {
     return members.filter((m) => m.nome.toLowerCase().includes(q));
   }, [members, memberSearch]);
 
-  const saveLink = useCallback(async () => {
+  const saveAll = useCallback(async () => {
     if (!selectedItem) return;
+
+    // validar enviarEm quando preenchido
+    let enviarEmISO: string | null = null;
+    if (enviarEmLocal.trim()) {
+      enviarEmISO = localInputToISO(enviarEmLocal.trim());
+      if (!enviarEmISO) {
+        toast.error("Data/hora de disparo inválida.");
+        return;
+      }
+    }
 
     try {
       setSaving(true);
 
-      // Se escolheu member: envia membroId
-      // Se não escolheu: membroId = null (limpa vínculo)
-      // Sempre envia nomeResponsavelRaw (texto livre) para manter fallback coerente
       const payload: any = {
+        // vínculo/fallback
         nomeResponsavelRaw: nomeResponsavelRaw?.trim() || null,
+
+        // ✅ Etapa 3
+        envioAutomatico: !!envioAutomatico,
+        mensagem: mensagem?.trim() || null,
       };
+
+      // se usuário setou enviarEm no campo, envia; senão não mexe
+      if (enviarEmISO) payload.enviarEm = enviarEmISO;
 
       if (selectedMemberId) {
         payload.membroId = selectedMemberId;
@@ -201,20 +260,29 @@ export default function EscalaPage() {
 
       if (!res.ok || !json?.ok) {
         console.error("PATCH error:", json);
-        toast.error(json?.error ?? "Falha ao salvar vínculo");
+        toast.error(json?.error ?? "Falha ao salvar");
         return;
       }
 
-      toast.success("Responsável vinculado com sucesso.");
+      toast.success("Escala atualizada.");
       await fetchEscala();
       closeModal();
     } catch (e) {
       console.error(e);
-      toast.error("Falha ao salvar vínculo");
+      toast.error("Falha ao salvar");
     } finally {
       setSaving(false);
     }
-  }, [selectedItem, selectedMemberId, nomeResponsavelRaw, fetchEscala, closeModal]);
+  }, [
+    selectedItem,
+    selectedMemberId,
+    nomeResponsavelRaw,
+    envioAutomatico,
+    enviarEmLocal,
+    mensagem,
+    fetchEscala,
+    closeModal,
+  ]);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -223,7 +291,7 @@ export default function EscalaPage() {
         <div>
           <h1 className="text-4xl font-bold text-gray-900">Escala</h1>
           <p className="text-gray-600 mt-2">
-            Agenda por data ({days} dias por padrão). Clique em um item para vincular.
+            Agenda por data ({days} dias por padrão). Clique em um item para editar.
           </p>
         </div>
 
@@ -277,9 +345,9 @@ export default function EscalaPage() {
                     {list.map((it) => (
                       <button
                         key={it.id}
-                        onClick={() => openLinkModal(it)}
+                        onClick={() => openModal(it)}
                         className="w-full text-left flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50 hover:bg-gray-100 transition rounded-lg px-3 py-2"
-                        title="Clique para vincular o responsável a um membro do banco"
+                        title="Clique para editar/vincular"
                       >
                         <div className="font-medium text-gray-900 flex items-center gap-2">
                           <Link2 className="w-4 h-4 text-gray-500" />
@@ -287,13 +355,15 @@ export default function EscalaPage() {
                           <span className="font-semibold">{it.nomeResponsavel}</span>
                         </div>
 
-                        {it.mensagem ? (
-                          <div className="text-sm text-gray-600 sm:max-w-[55%] sm:text-right">
-                            {it.mensagem}
+                        <div className="flex items-center gap-3">
+                          <div className="text-xs text-gray-500 flex items-center gap-1">
+                            <Clock className="w-4 h-4" />
+                            {it.enviarEm ? new Date(it.enviarEm).toLocaleString("pt-BR") : "sem horário"}
                           </div>
-                        ) : (
-                          <div className="text-sm text-gray-400 sm:text-right">—</div>
-                        )}
+                          <div className={cn("text-xs font-medium px-2 py-1 rounded-full", it.envioAutomatico ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-700")}>
+                            {it.envioAutomatico ? "Auto" : "Manual"}
+                          </div>
+                        </div>
                       </button>
                     ))}
                   </div>
@@ -304,17 +374,15 @@ export default function EscalaPage() {
         </div>
       </div>
 
-      {/* MODAL - Vincular */}
+      {/* MODAL */}
       {open && selectedItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/30" onClick={closeModal} />
 
-          <div className="relative w-[min(720px,92vw)] bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+          <div className="relative w-[min(780px,92vw)] bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-4">
               <div>
-                <div className="text-lg font-semibold text-gray-900">
-                  Vincular responsável
-                </div>
+                <div className="text-lg font-semibold text-gray-900">Editar escala</div>
                 <div className="text-sm text-gray-600 mt-1">
                   {tipoLabel[selectedItem.tipo] ?? selectedItem.tipo} —{" "}
                   {new Date(selectedItem.dataEvento).toLocaleDateString("pt-BR")}
@@ -330,7 +398,8 @@ export default function EscalaPage() {
               </button>
             </div>
 
-            <div className="px-5 py-5 space-y-4">
+            <div className="px-5 py-5 space-y-5">
+              {/* Responsável (texto) */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Responsável (texto livre)
@@ -342,10 +411,11 @@ export default function EscalaPage() {
                   placeholder="Ex: Ir. Renata"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Isso é o fallback. Mesmo vinculado a um membro, mantemos esse texto.
+                  Mantemos isso como fallback mesmo quando há vínculo.
                 </p>
               </div>
 
+              {/* Vincular member */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Vincular a um membro do banco (opcional)
@@ -370,10 +440,63 @@ export default function EscalaPage() {
                     </option>
                   ))}
                 </select>
+              </div>
 
-                <p className="text-xs text-gray-500 mt-1">
-                  Se você escolher um membro, o sistema passa a ter <b>membroId</b> para automações.
-                </p>
+              {/* ✅ Etapa 3 - Programação */}
+              <div className="border border-gray-100 rounded-xl p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="font-semibold text-gray-900 flex items-center gap-2">
+                    <Clock className="w-5 h-5 text-gray-600" />
+                    Programação do disparo
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setEnvioAutomatico((v) => !v)}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-2 rounded-lg border",
+                      envioAutomatico ? "border-green-200 bg-green-50" : "border-gray-200 bg-gray-50"
+                    )}
+                  >
+                    {envioAutomatico ? (
+                      <ToggleRight className="w-5 h-5 text-green-600" />
+                    ) : (
+                      <ToggleLeft className="w-5 h-5 text-gray-600" />
+                    )}
+                    <span className="text-sm font-medium text-gray-800">
+                      {envioAutomatico ? "Envio automático: ON" : "Envio automático: OFF"}
+                    </span>
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Disparar em (data/hora)
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={enviarEmLocal}
+                    onChange={(e) => setEnviarEmLocal(e.target.value)}
+                    className="w-full h-11 border border-gray-200 rounded-lg px-3 bg-white text-gray-900"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Esse horário controla quando o scheduler vai disparar (1 por execução).
+                  </p>
+                </div>
+              </div>
+
+              {/* Mensagem */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Mensagem (opcional)
+                </label>
+                <textarea
+                  value={mensagem}
+                  onChange={(e) => setMensagem(e.target.value)}
+                  rows={3}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-900"
+                  placeholder="Ex: Chegar 30 min antes..."
+                />
               </div>
             </div>
 
@@ -381,8 +504,8 @@ export default function EscalaPage() {
               <Button variant="secondary" onClick={closeModal} disabled={saving}>
                 Cancelar
               </Button>
-              <Button onClick={saveLink} loading={saving}>
-                Salvar vínculo
+              <Button onClick={saveAll} loading={saving}>
+                Salvar
               </Button>
             </div>
           </div>
