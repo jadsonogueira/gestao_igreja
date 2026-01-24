@@ -40,10 +40,11 @@ export async function GET() {
     }
 
     // 3) Valida se o token está utilizável (isso pode fazer refresh automaticamente)
-    const { googleFetch, calendarId } = await getGoogleCalendarClient();
+    const gcal = await getGoogleCalendarClient();
+    const calendarId = process.env.GOOGLE_CALENDAR_ID as string;
 
     // Chamada leve: pega metadados do calendário (confere permissão e calendarId)
-    const res = await googleFetch(`/calendars/${encodeURIComponent(calendarId)}`);
+    const res = await gcal.get(`/calendars/${encodeURIComponent(calendarId)}`);
 
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
