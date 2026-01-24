@@ -251,6 +251,10 @@ export async function POST(req: Request) {
             membroId: member?.id ?? null,
             membroNome: member?.nome ?? null,
             nomeResponsavelRaw: nameRaw,
+            googleEventId: ev.id ?? existing.googleEventId ?? null,
+            googleCalendarId: calendarId,
+            source: "GOOGLE",
+            lastSyncedAt: new Date(),
           },
         });
         updated++;
