@@ -24,6 +24,14 @@ function todayYYYYMMDD() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+function toISODate(v: any): string | null {
+  if (!v) return null;
+  if (v instanceof Date) return v.toISOString();
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -51,41 +59,42 @@ export async function GET(request: Request) {
         dataEvento: { gte: timeMin, lt: timeMax },
       },
       orderBy: [{ dataEvento: "asc" }, { tipo: "asc" }],
-      // ⚠️ select tipado pelo Prisma pode não aceitar campos legados,
-      // então usamos include total? Não. Melhor: buscar tudo e mapear.
     });
 
-    const items = (rows as any[]).map((r) => ({
-      id: r.id,
-      tipo: r.tipo,
-      dataEvento:
-        r.dataEvento instanceof Date
-          ? r.dataEvento.toISOString()
-          : new Date(r.dataEvento).toISOString(),
+    const items = (rows as any[]).map((r) => {
+      const dataEventoISO = toISODate(r.dataEvento) ?? new Date().toISOString();
 
-      // ✅ chave: resolve nome tanto no formato novo quanto no legado
-      nomeResponsavel:
-        r.membroNome ??
-        r.nomeResponsavelRaw ??
-        r.nomeResponsavel ??
-        "—",
+      // ✅ defaults coerentes para o front
+      const envioAutomatico =
+        typeof r.envioAutomatico === "boolean" ? r.envioAutomatico : true;
 
-      mensagem: r.mensagem ?? null,
+      // se não existir enviarEm ainda, usa dataEvento como fallback
+      const enviarEmISO = toISODate(r.enviarEm) ?? dataEventoISO;
 
-      // campos úteis na UI
-      status: r.status ?? null,
-      envioAutomatico: r.envioAutomatico ?? null,
-      enviarEm:
-        r.enviarEm instanceof Date
-          ? r.enviarEm.toISOString()
-          : r.enviarEm
-          ? new Date(r.enviarEm).toISOString()
-          : null,
-      erroMensagem: r.erroMensagem ?? null,
+      return {
+        id: r.id,
+        tipo: r.tipo,
+        dataEvento: dataEventoISO,
 
-      // legado (se quiser mostrar depois)
-      horario: r.horario ?? null,
-    }));
+        // ✅ resolve nome tanto no formato novo quanto no legado
+        nomeResponsavel:
+          r.membroNome ??
+          r.nomeResponsavelRaw ??
+          r.nomeResponsavel ??
+          "—",
+
+        mensagem: r.mensagem ?? null,
+
+        // ✅ campos que a UI da etapa 3 precisa
+        envioAutomatico,
+        enviarEm: enviarEmISO,
+
+        // opcionais (se quiser mostrar depois)
+        status: r.status ?? null,
+        erroMensagem: r.erroMensagem ?? null,
+        horario: r.horario ?? null,
+      };
+    });
 
     return NextResponse.json({
       ok: true,
