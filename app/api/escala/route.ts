@@ -9,7 +9,6 @@ function isValidYYYYMMDD(s: string) {
 }
 
 function startOfDayUTCFromYYYYMMDD(dateStr: string) {
-  // Interpreta como "dia" fixo e estável (00:00Z)
   return new Date(`${dateStr}T00:00:00.000Z`);
 }
 
@@ -18,8 +17,6 @@ function addDaysUTC(d: Date, days: number) {
 }
 
 function todayYYYYMMDD() {
-  // Mantém simples: hoje no relógio do servidor, formatado YYYY-MM-DD
-  // (se quiser, depois podemos amarrar no APP_TIMEZONE)
   const now = new Date();
   const yyyy = now.getUTCFullYear();
   const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
@@ -34,9 +31,10 @@ export async function GET(request: Request) {
     const daysRaw = searchParams.get("days") ?? "60";
     const days = Math.max(1, Math.min(365, Number(daysRaw) || 60));
 
-    // Aceita start=YYYY-MM-DD (preferido)
-    // Aceita date=YYYY-MM-DD (compatibilidade)
-    const startStr = searchParams.get("start") ?? searchParams.get("date") ?? todayYYYYMMDD();
+    const startStr =
+      searchParams.get("start") ??
+      searchParams.get("date") ??
+      todayYYYYMMDD();
 
     if (!isValidYYYYMMDD(startStr)) {
       return NextResponse.json(
@@ -48,19 +46,37 @@ export async function GET(request: Request) {
     const timeMin = startOfDayUTCFromYYYYMMDD(startStr);
     const timeMax = addDaysUTC(timeMin, days);
 
-    const items = await prisma.escala.findMany({
+    const rows = await prisma.escala.findMany({
       where: {
-        dataEvento: {
-          gte: timeMin,
-          lt: timeMax,
-        },
+        dataEvento: { gte: timeMin, lt: timeMax },
       },
       orderBy: [{ dataEvento: "asc" }, { tipo: "asc" }],
+      select: {
+        id: true,
+        tipo: true,
+        dataEvento: true,
+        membroNome: true,
+        nomeResponsavelRaw: true,
+        mensagem: true,
+      },
     });
+
+    const items = rows.map((r) => ({
+      id: r.id,
+      tipo: r.tipo,
+      dataEvento: r.dataEvento.toISOString(),
+      nomeResponsavel: r.membroNome ?? r.nomeResponsavelRaw ?? "—",
+      mensagem: r.mensagem ?? null,
+    }));
 
     return NextResponse.json({
       ok: true,
-      range: { days, start: startStr, timeMin: timeMin.toISOString(), timeMax: timeMax.toISOString() },
+      range: {
+        days,
+        start: startStr,
+        timeMin: timeMin.toISOString(),
+        timeMax: timeMax.toISOString(),
+      },
       items,
     });
   } catch (e: any) {
