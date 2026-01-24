@@ -114,10 +114,15 @@ model Escala {
   nomeResponsavelRaw String?
   mensagem           String?
 
-  // ✅ CAMPOS LEGADOS (existem documentos antigos no Mongo)
-  // Apenas compatibilidade de leitura. Não use mais como regra nova.
+  // LEGADO (existem documentos antigos no Mongo)
   nomeResponsavel String?
   horario         String?
+
+  // ✅ VÍNCULO COM GOOGLE (necessário para “editar no app → refletir no Google”)
+  googleEventId    String?
+  googleCalendarId String?
+  source           EscalaSource @default(GOOGLE)
+  lastSyncedAt     DateTime?
 
   envioAutomatico Boolean      @default(true)
   enviarEm        DateTime
@@ -133,3 +138,9 @@ model Escala {
 
   @@unique([tipo, dataEvento], name: "tipo_dataEvento")
 }
+
+enum EscalaSource {
+  GOOGLE
+  MANUAL
+}
+
