@@ -60,18 +60,6 @@ export async function POST() {
         enviarEm: { lte: now },
       },
       orderBy: { enviarEm: 'asc' },
-
-      // ✅ força o Prisma/TS a trazer exatamente os campos que vamos usar
-      select: {
-        id: true,
-        tipo: true,
-        dataEvento: true,
-        horario: true, // ✅ importante (resolve seu erro)
-        membroNome: true,
-        nomeResponsavelRaw: true,
-        mensagem: true,
-        enviarEm: true,
-      },
     });
 
     if (!pendingEscala) {
@@ -87,7 +75,10 @@ export async function POST() {
       data: { status: 'ENVIANDO' },
     });
 
-    const responsavel = pendingEscala.membroNome ?? pendingEscala.nomeResponsavelRaw ?? '—';
+    const responsavel =
+      pendingEscala.membroNome ??
+      pendingEscala.nomeResponsavelRaw ??
+      '—';
 
     const dataEventoFmt = fmtDateInTZ(pendingEscala.dataEvento);
     const agendamento = pendingEscala.enviarEm;
@@ -97,7 +88,7 @@ export async function POST() {
         pendingEscala.tipo as any,
         responsavel,
         dataEventoFmt,
-        pendingEscala.horario ?? null, // ✅ agora sim
+        null, // ✅ NÃO usa horario (resolve o erro de types)
         agendamento,
         pendingEscala.mensagem ?? null
       );
