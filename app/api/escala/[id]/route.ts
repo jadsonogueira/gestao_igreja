@@ -1,73 +1,143 @@
-export const dynamic = 'force-dynamic';
-export const runtime = 'nodejs';
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
-import { NextResponse } from 'next/server';
-import prisma from '@/lib/db';
+import { NextResponse } from "next/server";
+import prisma from "@/lib/db";
 
-export async function GET(_request: Request, { params }: { params: { id: string } }) {
-  try {
-    const item = await prisma.escala.findUnique({ where: { id: params.id } });
-    if (!item) {
-      return NextResponse.json({ success: false, error: 'Item não encontrado' }, { status: 404 });
-    }
-    return NextResponse.json({ success: true, data: item });
-  } catch (error) {
-    console.error('Error reading escala:', error);
-    return NextResponse.json({ success: false, error: 'Erro ao buscar item' }, { status: 500 });
-  }
+type PatchBody = {
+  mensagem?: string | null;
+  envioAutomatico?: boolean;
+  enviarEm?: string; // ISO
+  nomeResponsavelRaw?: string | null;
+
+  membroId?: string | null; // ObjectId string
+  membroNome?: string | null; // opcional (se quiser mandar já resolvido)
+};
+
+function isValidISODate(s: string) {
+  const d = new Date(s);
+  return !Number.isNaN(d.getTime());
 }
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
   try {
-    const body = await request.json();
+    const id = params.id;
+
+    if (!id) {
+      return NextResponse.json(
+        { ok: false, error: "ID inválido" },
+        { status: 400 }
+      );
+    }
+
+    const body = (await request.json().catch(() => ({}))) as PatchBody;
 
     const data: any = {};
-    if (body?.tipo) data.tipo = String(body.tipo);
-    if (body?.dataEvento) data.dataEvento = new Date(body.dataEvento);
 
-    // ✅ Campos antigos removidos do schema (horario, nomeResponsavel)
-    // Mantemos compatibilidade: se vier "nomeResponsavel", gravamos em nomeResponsavelRaw/membroNome.
-    if (body?.nomeResponsavel !== undefined) {
-      const v = String(body.nomeResponsavel ?? '').trim();
-      data.nomeResponsavelRaw = v || null;
-      data.membroNome = v || null;
-      data.membroId = null; // se virou texto cru, desvincula do Member
+    // mensagem
+    if ("mensagem" in body) {
+      const msg = body.mensagem;
+      data.mensagem = msg === null ? null : String(msg ?? "").trim() || null;
     }
 
-    if (body?.nomeResponsavelRaw !== undefined) {
-      const v = String(body.nomeResponsavelRaw ?? '').trim();
-      data.nomeResponsavelRaw = v || null;
+    // envioAutomatico
+    if ("envioAutomatico" in body) {
+      data.envioAutomatico = Boolean(body.envioAutomatico);
     }
 
-    if (body?.membroNome !== undefined) {
-      const v = String(body.membroNome ?? '').trim();
-      data.membroNome = v || null;
+    // enviarEm
+    if ("enviarEm" in body) {
+      const v = body.enviarEm;
+      if (v === null || v === undefined || v === "") {
+        return NextResponse.json(
+          { ok: false, error: "enviarEm é obrigatório" },
+          { status: 400 }
+        );
+      }
+      if (!isValidISODate(v)) {
+        return NextResponse.json(
+          { ok: false, error: "enviarEm inválido (use ISO)" },
+          { status: 400 }
+        );
+      }
+      data.enviarEm = new Date(v);
     }
 
-    if (body?.membroId !== undefined) {
-      const v = String(body.membroId ?? '').trim();
-      data.membroId = v ? v : null;
+    // nomeResponsavelRaw (texto cru)
+    if ("nomeResponsavelRaw" in body) {
+      const v = body.nomeResponsavelRaw;
+      data.nomeResponsavelRaw =
+        v === null ? null : String(v ?? "").trim() || null;
+
+      // se você setou nomeResponsavelRaw manualmente, marca source como MANUAL
+      data.source = "MANUAL";
     }
 
-    if (body?.mensagem !== undefined) data.mensagem = body.mensagem ? String(body.mensagem) : null;
-    if (body?.envioAutomatico !== undefined) data.envioAutomatico = !!body.envioAutomatico;
-    if (body?.enviarEm) data.enviarEm = new Date(body.enviarEm);
-    if (body?.status) data.status = String(body.status);
+    // membroId / membroNome
+    if ("membroId" in body) {
+      const mid = body.membroId;
+      if (!mid) {
+        data.membroId = null;
+        data.membroNome = null;
+      } else {
+        // valida se existe
+        const member = await prisma.member.findUnique({
+          where: { id: mid },
+          select: { id: true, nome: true },
+        });
 
-    const item = await prisma.escala.update({ where: { id: params.id }, data });
-    return NextResponse.json({ success: true, data: item });
-  } catch (error) {
-    console.error('Error updating escala:', error);
-    return NextResponse.json({ success: false, error: 'Erro ao atualizar item' }, { status: 500 });
-  }
-}
+        if (!member) {
+          return NextResponse.json(
+            { ok: false, error: "Member não encontrado" },
+            { status: 404 }
+          );
+        }
 
-export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
-  try {
-    await prisma.escala.delete({ where: { id: params.id } });
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('Error deleting escala:', error);
-    return NextResponse.json({ success: false, error: 'Erro ao excluir item' }, { status: 500 });
+        data.membroId = member.id;
+        data.membroNome = member.nome;
+        // se você vinculou manualmente, também marca como MANUAL
+        data.source = "MANUAL";
+      }
+    }
+
+    if (Object.keys(data).length === 0) {
+      return NextResponse.json(
+        { ok: false, error: "Nenhum campo para atualizar" },
+        { status: 400 }
+      );
+    }
+
+    const updated = await prisma.escala.update({
+      where: { id },
+      data,
+      select: {
+        id: true,
+        tipo: true,
+        dataEvento: true,
+        membroId: true,
+        membroNome: true,
+        nomeResponsavelRaw: true,
+        mensagem: true,
+        envioAutomatico: true,
+        enviarEm: true,
+        status: true,
+        googleEventId: true,
+        googleCalendarId: true,
+        source: true,
+        lastSyncedAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return NextResponse.json({ ok: true, item: updated });
+  } catch (e: any) {
+    console.error("PATCH /api/escala/[id] error:", e);
+    return NextResponse.json(
+      { ok: false, error: "Falha ao atualizar escala", details: String(e?.message ?? e) },
+      { status: 500 }
+    );
   }
 }
