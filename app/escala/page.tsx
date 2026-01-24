@@ -22,9 +22,15 @@ type EscalaItem = {
   nomeResponsavel: string;
   mensagem?: string | null;
 
+  membroId?: string | null;
+  membroNome?: string | null;
+  nomeResponsavelRaw?: string | null;
+
   // Etapa 3
   envioAutomatico?: boolean;
   enviarEm?: string; // ISO
+  status?: string | null;
+  erroMensagem?: string | null;
 };
 
 type ApiResponse = {
@@ -44,6 +50,27 @@ type MembersResponse = {
   ok: boolean;
   error?: string;
   items?: MemberOption[];
+};
+
+type PatchResponse = {
+  ok: boolean;
+  error?: string;
+  item?: Partial<EscalaItem> & {
+    enviarEm?: string | null;
+    membroId?: string | null;
+    membroNome?: string | null;
+    nomeResponsavelRaw?: string | null;
+    mensagem?: string | null;
+    envioAutomatico?: boolean;
+    status?: string | null;
+    erroMensagem?: string | null;
+  };
+};
+
+type SendNowResponse = {
+  ok: boolean;
+  error?: string;
+  message?: string;
 };
 
 // Resposta do import (rota /api/escala/importar-google)
@@ -135,6 +162,7 @@ export default function EscalaPage() {
   const [mensagem, setMensagem] = useState<string>("");
 
   const [saving, setSaving] = useState(false);
+  const [sendingNow, setSendingNow] = useState(false);
 
   const start = useMemo(() => yyyyMMddUTC(new Date()), []);
 
@@ -274,7 +302,7 @@ export default function EscalaPage() {
 
     // vínculo
     setNomeResponsavelRaw(it.nomeResponsavel ?? "");
-    setSelectedMemberId("");
+    setSelectedMemberId(it.membroId ?? "");
     setMemberSearch("");
 
     // Etapa 3 (defaults do item)
@@ -298,6 +326,7 @@ export default function EscalaPage() {
     setMensagem("");
 
     setSaving(false);
+    setSendingNow(false);
   }, []);
 
   const filteredMembers = useMemo(() => {
@@ -306,45 +335,67 @@ export default function EscalaPage() {
     return members.filter((m) => m.nome.toLowerCase().includes(q));
   }, [members, memberSearch]);
 
-  const saveAll = useCallback(async () => {
-    if (!selectedItem) return;
+  const canSendNow = useMemo(
+    () => Boolean(selectedMemberId || selectedItem?.membroId),
+    [selectedMemberId, selectedItem]
+  );
 
+  const buildPayload = useCallback(() => {
     let enviarEmISO: string | null = null;
     if (enviarEmLocal.trim()) {
       enviarEmISO = localInputToISO(enviarEmLocal.trim());
       if (!enviarEmISO) {
         toast.error("Data/hora de disparo inválida.");
-        return;
+        return null;
       }
     }
 
+    const payload: any = {
+      nomeResponsavelRaw: nomeResponsavelRaw?.trim() || null,
+      envioAutomatico: !!envioAutomatico,
+      mensagem: mensagem?.trim() || null,
+      membroId: selectedMemberId || null,
+    };
+
+    if (enviarEmISO) payload.enviarEm = enviarEmISO;
+
+    return payload;
+  }, [selectedMemberId, nomeResponsavelRaw, envioAutomatico, enviarEmLocal, mensagem]);
+
+  const persistChanges = useCallback(async () => {
+    if (!selectedItem) return null;
+
+    const payload = buildPayload();
+    if (!payload) return null;
+
+    const res = await fetch(`/api/escala/${selectedItem.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    const json = (await res.json().catch(() => ({}))) as PatchResponse;
+
+    if (!res.ok || !json?.ok) {
+      console.error("PATCH error:", json);
+      toast.error(json?.error ?? "Falha ao salvar");
+      return null;
+    }
+
+    if (json.item) {
+      setSelectedItem((prev) => (prev ? { ...prev, ...json.item } : prev));
+    }
+
+    return json.item ?? null;
+  }, [selectedItem, buildPayload]);
+
+  const saveAll = useCallback(async () => {
+    if (!selectedItem) return;
+
     try {
       setSaving(true);
-
-      const payload: any = {
-        nomeResponsavelRaw: nomeResponsavelRaw?.trim() || null,
-        envioAutomatico: !!envioAutomatico,
-        mensagem: mensagem?.trim() || null,
-      };
-
-      if (enviarEmISO) payload.enviarEm = enviarEmISO;
-
-      if (selectedMemberId) payload.membroId = selectedMemberId;
-      else payload.membroId = null;
-
-      const res = await fetch(`/api/escala/${selectedItem.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      const json = await res.json();
-
-      if (!res.ok || !json?.ok) {
-        console.error("PATCH error:", json);
-        toast.error(json?.error ?? "Falha ao salvar");
-        return;
-      }
+      const updated = await persistChanges();
+      if (!updated) return;
 
       toast.success("Escala atualizada.");
       await fetchEscalaOnly();
@@ -355,16 +406,46 @@ export default function EscalaPage() {
     } finally {
       setSaving(false);
     }
-  }, [
-    selectedItem,
-    selectedMemberId,
-    nomeResponsavelRaw,
-    envioAutomatico,
-    enviarEmLocal,
-    mensagem,
-    fetchEscalaOnly,
-    closeModal,
-  ]);
+  }, [selectedItem, persistChanges, fetchEscalaOnly, closeModal]);
+
+  const sendNow = useCallback(async () => {
+    if (!selectedItem) return;
+
+    if (!canSendNow) {
+      toast.error("Vincule a escala a um membro antes de enviar.");
+      return;
+    }
+
+    try {
+      setSendingNow(true);
+
+      const updated = await persistChanges();
+      if (!updated) return;
+
+      const res = await fetch(`/api/escala/${selectedItem.id}/enviar-agora`, {
+        method: "POST",
+      });
+
+      const json = (await res.json().catch(() => ({}))) as SendNowResponse;
+
+      if (!res.ok || !json?.ok) {
+        console.error("send-now error:", json);
+        toast.error(json?.error ?? "Falha ao enviar agora");
+        return;
+      }
+
+      toast.success(json?.message ?? "Envio disparado.");
+      await fetchEscalaOnly();
+      setSelectedItem((prev) =>
+        prev ? { ...prev, status: "ENVIADO", erroMensagem: null } : prev
+      );
+    } catch (e) {
+      console.error(e);
+      toast.error("Falha ao enviar agora");
+    } finally {
+      setSendingNow(false);
+    }
+  }, [selectedItem, canSendNow, persistChanges, fetchEscalaOnly]);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -485,6 +566,7 @@ export default function EscalaPage() {
                 onClick={closeModal}
                 className="p-2 rounded-lg hover:bg-gray-100"
                 aria-label="Fechar"
+                disabled={saving || sendingNow}
               >
                 <X className="w-5 h-5 text-gray-700" />
               </button>
@@ -501,6 +583,7 @@ export default function EscalaPage() {
                   onChange={(e) => setNomeResponsavelRaw(e.target.value)}
                   className="w-full h-11 border border-gray-200 rounded-lg px-3 bg-white text-gray-900"
                   placeholder="Ex: Ir. Renata"
+                  disabled={saving || sendingNow}
                 />
                 <p className="text-xs text-gray-500 mt-1">
                   Mantemos isso como fallback mesmo quando há vínculo.
@@ -518,12 +601,14 @@ export default function EscalaPage() {
                   onChange={(e) => setMemberSearch(e.target.value)}
                   className="w-full h-11 border border-gray-200 rounded-lg px-3 bg-white text-gray-900 mb-2"
                   placeholder="Pesquisar membro (ex: Sylvia)"
+                  disabled={saving || sendingNow}
                 />
 
                 <select
                   value={selectedMemberId}
                   onChange={(e) => setSelectedMemberId(e.target.value)}
                   className="w-full h-11 border border-gray-200 rounded-lg px-3 bg-white text-gray-900"
+                  disabled={saving || sendingNow}
                 >
                   <option value="">— não vincular (usar apenas texto) —</option>
                   {filteredMembers.map((m) => (
@@ -537,32 +622,52 @@ export default function EscalaPage() {
 
               {/* Programação */}
               <div className="border border-gray-100 rounded-xl p-4 space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center gap-2">
                   <div className="font-semibold text-gray-900 flex items-center gap-2">
                     <Clock className="w-5 h-5 text-gray-600" />
                     Programação do disparo
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setEnvioAutomatico((v) => !v)}
-                    className={cn(
-                      "flex items-center gap-2 px-3 py-2 rounded-lg border",
-                      envioAutomatico
-                        ? "border-green-200 bg-green-50"
-                        : "border-gray-200 bg-gray-50"
-                    )}
-                  >
-                    {envioAutomatico ? (
-                      <ToggleRight className="w-5 h-5 text-green-600" />
-                    ) : (
-                      <ToggleLeft className="w-5 h-5 text-gray-600" />
-                    )}
-                    <span className="text-sm font-medium text-gray-800">
-                      {envioAutomatico ? "Envio automático: ON" : "Envio automático: OFF"}
-                    </span>
-                  </button>
+                  <div className="ml-auto flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={sendNow}
+                      loading={sendingNow}
+                      disabled={saving || sendingNow || !canSendNow}
+                    >
+                      Enviar agora
+                    </Button>
+
+                    <button
+                      type="button"
+                      onClick={() => setEnvioAutomatico((v) => !v)}
+                      disabled={saving || sendingNow}
+                      className={cn(
+                        "flex items-center gap-2 px-3 py-2 rounded-lg border",
+                        envioAutomatico
+                          ? "border-green-200 bg-green-50"
+                          : "border-gray-200 bg-gray-50",
+                        (saving || sendingNow) && "opacity-60 cursor-not-allowed"
+                      )}
+                    >
+                      {envioAutomatico ? (
+                        <ToggleRight className="w-5 h-5 text-green-600" />
+                      ) : (
+                        <ToggleLeft className="w-5 h-5 text-gray-600" />
+                      )}
+                      <span className="text-sm font-medium text-gray-800">
+                        {envioAutomatico ? "Envio automático: ON" : "Envio automático: OFF"}
+                      </span>
+                    </button>
+                  </div>
                 </div>
+
+                {!canSendNow && (
+                  <p className="text-xs text-amber-700">
+                    Para enviar agora, vincule esta escala a um membro.
+                  </p>
+                )}
 
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -573,6 +678,7 @@ export default function EscalaPage() {
                     value={enviarEmLocal}
                     onChange={(e) => setEnviarEmLocal(e.target.value)}
                     className="w-full h-11 border border-gray-200 rounded-lg px-3 bg-white text-gray-900"
+                    disabled={saving || sendingNow}
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     Esse horário controla quando o scheduler vai disparar (1 por execução).
@@ -591,15 +697,16 @@ export default function EscalaPage() {
                   rows={3}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-900"
                   placeholder="Ex: Chegar 30 min antes..."
+                  disabled={saving || sendingNow}
                 />
               </div>
             </div>
 
             <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2">
-              <Button variant="secondary" onClick={closeModal} disabled={saving}>
+              <Button variant="secondary" onClick={closeModal} disabled={saving || sendingNow}>
                 Cancelar
               </Button>
-              <Button onClick={saveAll} loading={saving}>
+              <Button onClick={saveAll} loading={saving} disabled={sendingNow}>
                 Salvar
               </Button>
             </div>
