@@ -7,6 +7,31 @@ import { getValidGoogleAccessToken } from "@/lib/googleCalendar";
 
 const APP_TIMEZONE = process.env.APP_TIMEZONE ?? "America/Toronto";
 
+function startOfDayUTC(d: Date) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
+}
+
+/**
+ * Regra padrão: enviar 1 dia antes do evento, às 10:00 no fuso do app.
+ * (Toronto costuma ser UTC-5 ou UTC-4 conforme DST. Aqui vamos usar uma regra simples e estável.)
+ *
+ * Para evitar surpresa com DST, a Etapa 3 permite editar manualmente no app.
+ */
+function defaultEnviarEmFromDataEvento(dateEventoUTC00: Date) {
+  // dateEvento vem normalizado como 00:00Z (seu código já faz isso)
+  const d = startOfDayUTC(dateEventoUTC00);
+
+  // 1 dia antes
+  d.setUTCDate(d.getUTCDate() - 1);
+
+  // 10h Toronto (aprox) -> 15h UTC no inverno / 14h UTC no verão.
+  // Vamos colocar 15h UTC como padrão estável.
+  d.setUTCHours(15, 0, 0, 0);
+
+  return d;
+}
+
+
 type GoogleEvent = {
   id?: string;
   summary?: string | null;
