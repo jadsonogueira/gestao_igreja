@@ -105,13 +105,7 @@ model Escala {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // 🔴 RELAÇÃO NOMEADA (OBRIGATÓRIO)
-  member Member? @relation(
-    "MemberEscalas",
-    fields: [membroId],
-    references: [id],
-    onDelete: SetNull
-  )
+  member Member? @relation("MemberEscalas", fields: [membroId], references: [id], onDelete: SetNull)
 
   @@unique([tipo, dataEvento], name: "tipo_dataEvento")
 }
