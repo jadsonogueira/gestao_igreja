@@ -10,7 +10,6 @@ import {
   Clock,
   ToggleLeft,
   ToggleRight,
-  AlertTriangle,
 } from "lucide-react";
 import Button from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -20,24 +19,12 @@ type EscalaItem = {
   id: string;
   tipo: EscalaTipo;
   dataEvento: string; // ISO
-
-  // ✅ nomes
-  nomeResponsavel: string; // nome resolvido (membroNome || raw || legado)
-  membroId?: string | null;
-  membroNome?: string | null;
-  nomeResponsavelRaw?: string | null;
-
-  // mensagem e envio
+  nomeResponsavel: string;
   mensagem?: string | null;
-  envioAutomatico?: boolean | null;
-  enviarEm?: string | null; // ISO
 
-  // status
-  status?: string | null;
-  erroMensagem?: string | null;
-
-  // legado (se existir)
-  horario?: string | null;
+  // Etapa 3
+  envioAutomatico?: boolean;
+  enviarEm?: string; // ISO
 };
 
 type ApiResponse = {
@@ -57,6 +44,22 @@ type MembersResponse = {
   ok: boolean;
   error?: string;
   items?: MemberOption[];
+};
+
+// Resposta do import (rota /api/escala/importar-google)
+type ImportResponse = {
+  ok?: boolean;
+  connected?: boolean;
+  reason?: string;
+  error?: string;
+  totals?: {
+    googleEvents: number;
+    parsed: number;
+    created: number;
+    updated: number;
+    ignored: number;
+  };
+  details?: any;
 };
 
 const tipoLabel: Record<string, string> = {
@@ -86,8 +89,8 @@ function dateKeyFromISO(iso: string) {
   return yyyyMMddUTC(d);
 }
 
-// Converte ISO -> string do input datetime-local (YYYY-MM-DDTHH:mm)
-function isoToLocalInputValue(iso?: string | null) {
+// ISO -> input datetime-local (YYYY-MM-DDTHH:mm)
+function isoToLocalInputValue(iso?: string) {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
@@ -99,9 +102,9 @@ function isoToLocalInputValue(iso?: string | null) {
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
 }
 
-// Converte input datetime-local -> ISO UTC
+// input datetime-local -> ISO UTC
 function localInputToISO(value: string) {
-  const d = new Date(value); // assume timezone local
+  const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null;
   return d.toISOString();
 }
@@ -126,9 +129,9 @@ export default function EscalaPage() {
   const [selectedMemberId, setSelectedMemberId] = useState<string>("");
   const [nomeResponsavelRaw, setNomeResponsavelRaw] = useState<string>("");
 
-  // Programação / mensagem
+  // Etapa 3
   const [envioAutomatico, setEnvioAutomatico] = useState<boolean>(true);
-  const [enviarEmLocal, setEnviarEmLocal] = useState<string>(""); // datetime-local
+  const [enviarEmLocal, setEnviarEmLocal] = useState<string>("");
   const [mensagem, setMensagem] = useState<string>("");
 
   const [saving, setSaving] = useState(false);
@@ -145,30 +148,80 @@ export default function EscalaPage() {
     return Array.from(map.entries()).sort(([a], [b]) => (a > b ? 1 : -1));
   }, [items]);
 
-  const fetchEscala = useCallback(async () => {
+  // ✅ 1) Importa do Google Calendar
+  const importFromGoogle = useCallback(async () => {
     try {
-      setRefreshing(true);
-      const res = await fetch(`/api/escala?days=${days}&start=${start}`, {
-        cache: "no-store",
+      const res = await fetch("/api/escala/importar-google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // days define o intervalo que vamos importar (ex: próximos 60/90 dias)
+        body: JSON.stringify({ days }),
       });
-      const json = (await res.json()) as ApiResponse;
 
-      if (!json?.ok) {
-        toast.error(json?.error ?? "Falha ao carregar escala");
-        setItems([]);
-        return;
+      const json = (await res.json().catch(() => ({}))) as ImportResponse;
+
+      // Sua rota retorna 200 mesmo com erro do Google e usa connected:false
+      if (json?.connected === false) {
+        // Mostra erro “bonito”, mas não trava o resto do refresh
+        toast.error("Falha ao importar do Google Calendar (verifique credenciais).");
+        console.error("[importar-google] connected:false", json);
+        return { ok: false, json };
       }
 
-      setItems(json.items ?? []);
+      if (json?.ok === false) {
+        toast.error(json?.error ?? "Falha ao importar do Google Calendar");
+        console.error("[importar-google] ok:false", json);
+        return { ok: false, json };
+      }
+
+      const t = json?.totals;
+      if (t) {
+        toast.success(
+          `Importado do Google: +${t.created} criado(s), ${t.updated} atualizado(s), ${t.ignored} ignorado(s).`
+        );
+      } else {
+        toast.success("Importação do Google concluída.");
+      }
+
+      return { ok: true, json };
     } catch (e) {
       console.error(e);
-      toast.error("Falha ao carregar escala");
+      toast.error("Falha ao importar do Google Calendar");
+      return { ok: false, json: null };
+    }
+  }, [days]);
+
+  // ✅ 2) Busca do banco (o que já existia)
+  const fetchEscalaOnly = useCallback(async () => {
+    const res = await fetch(`/api/escala?days=${days}&start=${start}`, { cache: "no-store" });
+    const json = (await res.json()) as ApiResponse;
+
+    if (!json?.ok) {
+      throw new Error(json?.error ?? "Falha ao carregar escala");
+    }
+
+    setItems(json.items ?? []);
+  }, [days, start]);
+
+  // ✅ Botão Atualizar = Importa Google + Recarrega lista
+  const refreshAll = useCallback(async () => {
+    try {
+      setRefreshing(true);
+
+      // 1) importa
+      await importFromGoogle();
+
+      // 2) recarrega lista do banco
+      await fetchEscalaOnly();
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message ?? "Falha ao carregar escala");
       setItems([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [days, start]);
+  }, [importFromGoogle, fetchEscalaOnly]);
 
   const fetchMembers = useCallback(async () => {
     try {
@@ -192,9 +245,25 @@ export default function EscalaPage() {
     }
   }, []);
 
+  // Primeira carga: pode decidir se quer importar sempre ou não.
+  // Aqui eu NÃO importo automaticamente na primeira carga para evitar “bater no Google” sozinho.
+  // Eu só carrego do banco; o usuário clica em Atualizar quando quiser import.
+  const initialLoad = useCallback(async () => {
+    try {
+      setLoading(true);
+      await fetchEscalaOnly();
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message ?? "Falha ao carregar escala");
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchEscalaOnly]);
+
   useEffect(() => {
-    fetchEscala();
-  }, [fetchEscala]);
+    initialLoad();
+  }, [initialLoad]);
 
   useEffect(() => {
     fetchMembers();
@@ -203,16 +272,14 @@ export default function EscalaPage() {
   const openModal = useCallback((it: EscalaItem) => {
     setSelectedItem(it);
 
-    // ✅ se já está vinculado, preenche o select automaticamente
-    setSelectedMemberId(it.membroId ?? "");
-
+    // vínculo
+    setNomeResponsavelRaw(it.nomeResponsavel ?? "");
+    setSelectedMemberId("");
     setMemberSearch("");
 
-    // texto fallback (raw)
-    setNomeResponsavelRaw((it.nomeResponsavelRaw ?? it.nomeResponsavel ?? "").toString());
-
-    setEnvioAutomatico(Boolean(it.envioAutomatico ?? true));
-    setEnviarEmLocal(isoToLocalInputValue(it.enviarEm ?? null));
+    // Etapa 3 (defaults do item)
+    setEnvioAutomatico(it.envioAutomatico ?? true);
+    setEnviarEmLocal(isoToLocalInputValue(it.enviarEm));
     setMensagem((it.mensagem ?? "").toString());
 
     setOpen(true);
@@ -262,8 +329,8 @@ export default function EscalaPage() {
 
       if (enviarEmISO) payload.enviarEm = enviarEmISO;
 
-      // ✅ vínculo (mantém consistente com seu padrão)
-      payload.membroId = selectedMemberId ? selectedMemberId : null;
+      if (selectedMemberId) payload.membroId = selectedMemberId;
+      else payload.membroId = null;
 
       const res = await fetch(`/api/escala/${selectedItem.id}`, {
         method: "PATCH",
@@ -280,7 +347,7 @@ export default function EscalaPage() {
       }
 
       toast.success("Escala atualizada.");
-      await fetchEscala();
+      await fetchEscalaOnly();
       closeModal();
     } catch (e) {
       console.error(e);
@@ -295,7 +362,7 @@ export default function EscalaPage() {
     envioAutomatico,
     enviarEmLocal,
     mensagem,
-    fetchEscala,
+    fetchEscalaOnly,
     closeModal,
   ]);
 
@@ -322,7 +389,8 @@ export default function EscalaPage() {
             <option value={90}>90 dias</option>
           </select>
 
-          <Button variant="secondary" onClick={fetchEscala} loading={refreshing}>
+          {/* ✅ Atualizar = Import Google + Recarregar */}
+          <Button variant="secondary" onClick={refreshAll} loading={refreshing}>
             <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
             Atualizar
           </Button>
@@ -357,52 +425,39 @@ export default function EscalaPage() {
                   </div>
 
                   <div className="mt-3 space-y-2">
-                    {list.map((it) => {
-                      const vinculado = !!it.membroId; // ✅ agora é isso que manda
-                      const enviarEmTxt = it.enviarEm
-                        ? new Date(it.enviarEm).toLocaleString("pt-BR")
-                        : "sem horário";
+                    {list.map((it) => (
+                      <button
+                        key={it.id}
+                        onClick={() => openModal(it)}
+                        className="w-full text-left flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50 hover:bg-gray-100 transition rounded-lg px-3 py-2"
+                        title="Clique para editar/vincular"
+                      >
+                        <div className="font-medium text-gray-900 flex items-center gap-2">
+                          <Link2 className="w-4 h-4 text-gray-500" />
+                          {tipoLabel[it.tipo] ?? it.tipo}:{" "}
+                          <span className="font-semibold">{it.nomeResponsavel}</span>
+                        </div>
 
-                      return (
-                        <button
-                          key={it.id}
-                          onClick={() => openModal(it)}
-                          className="w-full text-left flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50 hover:bg-gray-100 transition rounded-lg px-3 py-2"
-                          title="Clique para editar/vincular"
-                        >
-                          <div className="font-medium text-gray-900 flex items-center gap-2">
-                            <Link2 className="w-4 h-4 text-gray-500" />
-                            {tipoLabel[it.tipo] ?? it.tipo}:{" "}
-                            <span className="font-semibold">{it.nomeResponsavel}</span>
-
-                            {!vinculado && (
-                              <span className="ml-2 inline-flex items-center gap-1 text-xs font-semibold text-red-600">
-                                <AlertTriangle className="w-4 h-4" />
-                                não vinculado
-                              </span>
+                        <div className="flex items-center gap-3">
+                          <div className="text-xs text-gray-500 flex items-center gap-1">
+                            <Clock className="w-4 h-4" />
+                            {it.enviarEm
+                              ? new Date(it.enviarEm).toLocaleString("pt-BR")
+                              : "sem horário"}
+                          </div>
+                          <div
+                            className={cn(
+                              "text-xs font-medium px-2 py-1 rounded-full",
+                              it.envioAutomatico
+                                ? "bg-green-100 text-green-700"
+                                : "bg-gray-200 text-gray-700"
                             )}
+                          >
+                            {it.envioAutomatico ? "Auto" : "Manual"}
                           </div>
-
-                          <div className="flex items-center gap-3">
-                            <div className="text-xs text-gray-500 flex items-center gap-1">
-                              <Clock className="w-4 h-4" />
-                              {enviarEmTxt}
-                            </div>
-
-                            <div
-                              className={cn(
-                                "text-xs font-medium px-2 py-1 rounded-full",
-                                it.envioAutomatico
-                                  ? "bg-green-100 text-green-700"
-                                  : "bg-gray-200 text-gray-700"
-                              )}
-                            >
-                              {it.envioAutomatico ? "Auto" : "Manual"}
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
+                        </div>
+                      </button>
+                    ))}
                   </div>
                 </div>
               ))}
@@ -423,16 +478,6 @@ export default function EscalaPage() {
                 <div className="text-sm text-gray-600 mt-1">
                   {tipoLabel[selectedItem.tipo] ?? selectedItem.tipo} —{" "}
                   {new Date(selectedItem.dataEvento).toLocaleDateString("pt-BR")}
-                </div>
-
-                <div className="text-xs text-gray-500 mt-1">
-                  {selectedItem.membroId ? (
-                    <>
-                      Vinculado: <b>{selectedItem.membroNome ?? "—"}</b>
-                    </>
-                  ) : (
-                    <span className="text-red-600 font-semibold">Não vinculado</span>
-                  )}
                 </div>
               </div>
 
@@ -465,7 +510,7 @@ export default function EscalaPage() {
               {/* Vincular member */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Vincular a um membro do banco
+                  Vincular a um membro do banco (opcional)
                 </label>
 
                 <input
@@ -480,7 +525,7 @@ export default function EscalaPage() {
                   onChange={(e) => setSelectedMemberId(e.target.value)}
                   className="w-full h-11 border border-gray-200 rounded-lg px-3 bg-white text-gray-900"
                 >
-                  <option value="">— não vincular (vai ficar “não vinculado”) —</option>
+                  <option value="">— não vincular (usar apenas texto) —</option>
                   {filteredMembers.map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.nome}
@@ -488,10 +533,6 @@ export default function EscalaPage() {
                     </option>
                   ))}
                 </select>
-
-                <p className="text-xs text-gray-500 mt-1">
-                  Se não vincular, o item fica visivelmente marcado como “não vinculado”.
-                </p>
               </div>
 
               {/* Programação */}
@@ -507,7 +548,9 @@ export default function EscalaPage() {
                     onClick={() => setEnvioAutomatico((v) => !v)}
                     className={cn(
                       "flex items-center gap-2 px-3 py-2 rounded-lg border",
-                      envioAutomatico ? "border-green-200 bg-green-50" : "border-gray-200 bg-gray-50"
+                      envioAutomatico
+                        ? "border-green-200 bg-green-50"
+                        : "border-gray-200 bg-gray-50"
                     )}
                   >
                     {envioAutomatico ? (
