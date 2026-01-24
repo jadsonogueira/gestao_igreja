@@ -15,14 +15,34 @@ type GoogleEvent = {
 };
 
 function cleanSpaces(s: string) {
-  return s.replace(/\s+/g, " ").trim();
+  return (s ?? "").replace(/\s+/g, " ").trim();
 }
 
-// Aceita “Dirigente: João” (confirmado por você)
+function normalizeBasic(s: string) {
+  return cleanSpaces(s)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remove acentos
+    .toLowerCase();
+}
+
+function stripCommonPrefixes(name: string) {
+  // remove títulos comuns para casar com Member.nome
+  let s = cleanSpaces(name);
+
+  s = s.replace(/^pr\.?\s+/i, "");
+  s = s.replace(/^pra\.?\s+/i, "");
+  s = s.replace(/^pastor(a)?\s+/i, "");
+  s = s.replace(/^ir\.?\s+/i, "");
+  s = s.replace(/^irm(a|ã)\.?\s+/i, "");
+  s = s.replace(/^irm(a|ã)o\s+/i, "");
+
+  return cleanSpaces(s);
+}
+
+// Aceita “Dirigente: João”
 function parseRoleAndName(titleRaw: string) {
   const title = cleanSpaces(titleRaw || "");
 
-  // Roles aceitos
   const roleMap: Record<string, string> = {
     dirigente: "DIRIGENTE",
     louvor: "LOUVOR",
@@ -30,9 +50,9 @@ function parseRoleAndName(titleRaw: string) {
     pregação: "PREGACAO",
     pregacao: "PREGACAO",
     testemunho: "TESTEMUNHO",
+    apoio: "APOIO",
   };
 
-  // Regex: "Algo: Nome"
   const m = title.match(/^(.+?)\s*:\s*(.+)$/i);
   if (!m) return null;
 
@@ -41,31 +61,41 @@ function parseRoleAndName(titleRaw: string) {
 
   if (!roleRaw || !nameRaw) return null;
 
-  const roleKey = roleRaw.toLowerCase();
-  const roleEnum =
-    roleMap[roleKey] ||
-    roleMap[roleKey.normalize("NFD").replace(/[\u0300-\u036f]/g, "")];
+  const roleKey = normalizeBasic(roleRaw);
+  const roleEnum = roleMap[roleKey];
 
   if (!roleEnum) return null;
 
   return { roleEnum, roleRaw, nameRaw, title };
 }
 
+function getYMDInTZ(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const y = parts.find((p) => p.type === "year")?.value ?? "1970";
+  const m = parts.find((p) => p.type === "month")?.value ?? "01";
+  const d = parts.find((p) => p.type === "day")?.value ?? "01";
+  return `${y}-${m}-${d}`; // YYYY-MM-DD
+}
+
 function toDateEventoFromGoogleStart(ev: GoogleEvent) {
-  // Prefer all-day date (YYYY-MM-DD)
+  // All-day (YYYY-MM-DD) -> mantém o dia fixo
   if (ev.start?.date) {
-    // fixa em UTC meia-noite para evitar “pular dia”
     return new Date(`${ev.start.date}T00:00:00.000Z`);
   }
 
+  // dateTime -> normaliza para o dia no fuso do app (Toronto)
   if (ev.start?.dateTime) {
     const d = new Date(ev.start.dateTime);
     if (Number.isNaN(d.getTime())) return null;
-    // normaliza para “dia” (UTC)
-    const yyyy = d.getUTCFullYear();
-    const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-    const dd = String(d.getUTCDate()).padStart(2, "0");
-    return new Date(`${yyyy}-${mm}-${dd}T00:00:00.000Z`);
+
+    const ymd = getYMDInTZ(d, APP_TIMEZONE);
+    return new Date(`${ymd}T00:00:00.000Z`);
   }
 
   return null;
@@ -73,16 +103,19 @@ function toDateEventoFromGoogleStart(ev: GoogleEvent) {
 
 function makeRange(days: number) {
   const now = new Date();
-  // começo do dia UTC
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
+  const ymd = getYMDInTZ(now, APP_TIMEZONE);
+
+  // começamos do "hoje" no fuso do app, guardando como 00:00Z daquele YMD
+  const start = new Date(`${ymd}T00:00:00.000Z`);
   const end = new Date(start.getTime() + days * 24 * 60 * 60 * 1000);
+
   return { timeMin: start.toISOString(), timeMax: end.toISOString() };
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
-    const days = Number(body?.days ?? 60);
+    const days = Math.max(1, Math.min(365, Number(body?.days ?? 60)));
 
     const calendarId = String(
       body?.calendarId ?? process.env.GOOGLE_CALENDAR_ID ?? ""
@@ -118,21 +151,33 @@ export async function POST(req: Request) {
       const txt = await r.text().catch(() => "");
       return NextResponse.json(
         {
-          connected: false,
+          ok: false,
           reason: "google_api_error",
           details: { status: r.status, statusText: r.statusText, body: txt },
         },
-        { status: 200 }
+        { status: 500 }
       );
     }
 
     const data = await r.json();
     const events: GoogleEvent[] = Array.isArray(data?.items) ? data.items : [];
 
+    // ✅ Carrega members uma vez e cria índice normalizado (melhora match e performance)
+    const members = await prisma.member.findMany({
+      where: { ativo: true },
+      select: { id: true, nome: true },
+    });
+
+    const memberIndex = new Map<string, { id: string; nome: string }>();
+    for (const m of members) {
+      memberIndex.set(normalizeBasic(m.nome), m);
+    }
+
     let created = 0;
     let updated = 0;
     let parsed = 0;
     let ignored = 0;
+    let matchedMembers = 0;
 
     const sampleParsed: any[] = [];
     const ignoredList: any[] = [];
@@ -143,14 +188,14 @@ export async function POST(req: Request) {
 
       if (!parsedResult) {
         ignored++;
-        ignoredList.push({ title, reason: "title_not_matching_or_empty" });
+        if (ignoredList.length < 50) ignoredList.push({ title, reason: "title_not_matching_or_empty" });
         continue;
       }
 
       const dateEvento = toDateEventoFromGoogleStart(ev);
       if (!dateEvento) {
         ignored++;
-        ignoredList.push({ title, reason: "date_invalid" });
+        if (ignoredList.length < 50) ignoredList.push({ title, reason: "date_invalid" });
         continue;
       }
 
@@ -158,14 +203,16 @@ export async function POST(req: Request) {
 
       const { roleEnum, roleRaw, nameRaw } = parsedResult;
 
-      // Opção A: encontrar Member pelo nome (case-insensitive)
-      const member = await prisma.member.findFirst({
-        where: { nome: { equals: nameRaw, mode: "insensitive" } },
-        select: { id: true, nome: true },
-      });
+      // ✅ tenta casar Member por nome (com remoção de prefixos e normalização)
+      const cleaned = stripCommonPrefixes(nameRaw);
+      const key1 = normalizeBasic(nameRaw);
+      const key2 = normalizeBasic(cleaned);
 
-      // enviarEm: por padrão = dataEvento (00:00Z).
-      // Você pode mudar depois quando definirmos “quando enviar”.
+      const member = memberIndex.get(key2) ?? memberIndex.get(key1) ?? null;
+      if (member) matchedMembers++;
+
+      // enviarEm: por enquanto mantém no dia do evento (00:00Z do YMD)
+      // (depois refinamos para "X dias antes às 09:00 Toronto" se você quiser)
       const enviarEm = dateEvento;
 
       const where = {
@@ -175,8 +222,8 @@ export async function POST(req: Request) {
         },
       };
 
-      // Upsert (1 item por função por data)
       const existing = await prisma.escala.findUnique({ where });
+
       if (!existing) {
         await prisma.escala.create({
           data: {
@@ -184,7 +231,7 @@ export async function POST(req: Request) {
             dataEvento: dateEvento,
             membroId: member?.id ?? null,
             membroNome: member?.nome ?? null,
-            nomeResponsavelRaw: nameRaw,
+            nomeResponsavelRaw: nameRaw, // ✅ salva o texto cru vindo do calendar
             mensagem: null,
             envioAutomatico: true,
             enviarEm,
@@ -193,29 +240,26 @@ export async function POST(req: Request) {
         });
         created++;
       } else {
+        // ✅ atualiza apenas dados de vínculo e raw. Não mexe em mensagem/status.
         await prisma.escala.update({
           where,
           data: {
             membroId: member?.id ?? null,
             membroNome: member?.nome ?? null,
             nomeResponsavelRaw: nameRaw,
-            // Não mexe na mensagem do app
-            // Não mexe no status se já enviou/erro, a menos que você queira
           },
         });
         updated++;
       }
 
       if (sampleParsed.length < 14) {
-        const yyyy = dateEvento.getUTCFullYear();
-        const mm = String(dateEvento.getUTCMonth() + 1).padStart(2, "0");
-        const dd = String(dateEvento.getUTCDate()).padStart(2, "0");
         sampleParsed.push({
           roleEnum,
           title,
           roleRaw,
           nameRaw,
-          date: `${yyyy}-${mm}-${dd}`,
+          cleaned,
+          dateEvento: dateEvento.toISOString(),
           matchedMember: member?.nome ?? null,
         });
       }
@@ -230,6 +274,7 @@ export async function POST(req: Request) {
         created,
         updated,
         ignored,
+        matchedMembers,
       },
       sampleParsed,
       ignored: ignoredList,
