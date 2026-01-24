@@ -22,7 +22,7 @@ function defaultEnviarEmFromDataEvento(dateEventoUTC00: Date) {
   const d = startOfDayUTC(dateEventoUTC00);
 
   // 1 dia antes
-  d.setUTCDate(d.getUTCDate() - 1);
+  d.setUTCDate(d.getUTCDate() - 6);
 
   // 10h Toronto (aprox) -> 15h UTC no inverno / 14h UTC no verão.
   // Vamos colocar 15h UTC como padrão estável.
