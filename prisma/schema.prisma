@@ -27,8 +27,25 @@ model Member {
 
   emailLogs EmailLog[]
 
-  // 🔴 O CAMPO QUE O PRISMA ESTÁ COBRANDO
+  // ✅ inverso da relação com Escala
   escalas Escala[] @relation("MemberEscalas")
+}
+
+model MessageGroup {
+  id              String   @id @default(auto()) @map("_id") @db.ObjectId
+  nomeGrupo       String   @unique
+  mensagemPadrao  String   @default("")
+  frequenciaEnvio String   @default("mensal")
+  diaSemana       Int?
+  diaMes          Int?
+  horaEnvio       Int      @default(9)
+  minutoEnvio     Int      @default(0)
+  flyerUrl        String?
+  ultimoEnvio     DateTime?
+  proximoEnvio    DateTime?
+  ativo           Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 model EmailLog {
@@ -59,11 +76,13 @@ model SystemConfig {
 model GoogleIntegration {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
   provider     String   @unique
+
   accessToken  String
   refreshToken String?
   scope        String?
   tokenType    String?
   expiryDate   DateTime?
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
@@ -90,10 +109,10 @@ model Escala {
   tipo       EscalaTipo
   dataEvento DateTime
 
-  membroId   String? @db.ObjectId
-  membroNome String?
-  nomeResponsavelRaw String?
-  mensagem String?
+  membroId            String? @db.ObjectId
+  membroNome          String?
+  nomeResponsavelRaw  String?
+  mensagem            String?
 
   envioAutomatico Boolean      @default(true)
   enviarEm        DateTime
