@@ -221,28 +221,29 @@ export default function EscalaPage() {
     }
   }, [fetchEscalaOnly, importFromGoogle]);
 
-  // ✅ ESTE ERA O TRECHO QUE ESTAVA QUEBRADO NO SEU ARQUIVO
-  const fetchMembers = useCallback(async () => {
-    try {
-      setMembersLoading(true);
-      const res = await fetch("/api/members?limit=1000", { cache: "no-store" });
-      const json = (await res.json()) as MembersResponse;
+ const fetchMembers = useCallback(async () => {
+  try {
+    setMembersLoading(true);
 
-      if (!json?.ok) {
-        toast.error(json?.error ?? "Falha ao carregar membros");
-        setMembers([]);
-        return;
-      }
+    // ✅ rota correta para options
+    const res = await fetch("/api/members/options", { cache: "no-store" });
+    const json = (await res.json()) as MembersResponse;
 
-      setMembers(json.items ?? []);
-    } catch (e) {
-      console.error(e);
-      toast.error("Falha ao carregar membros");
+    if (!json?.ok) {
+      toast.error(json?.error ?? "Falha ao carregar membros");
       setMembers([]);
-    } finally {
-      setMembersLoading(false);
+      return;
     }
-  }, []);
+
+    setMembers(json.items ?? []);
+  } catch (e) {
+    console.error(e);
+    toast.error("Falha ao carregar membros");
+    setMembers([]);
+  } finally {
+    setMembersLoading(false);
+  }
+}, []);
 
   const initialLoad = useCallback(async () => {
     try {
