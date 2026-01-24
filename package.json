@@ -1,14 +1,15 @@
 {
   "name": "app",
   "private": true,
- "scripts": {
-  "dev": "next dev",
-  "build": "prisma generate && next build",
-  "start": "next start -p $PORT",
-  "lint": "next lint",
-  "postinstall": "prisma generate",
-  "scheduler": "tsx scripts/scheduler.ts"
-},
+  "scripts": {
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next start -p $PORT",
+    "scheduler": "tsx scripts/scheduler.ts",
+    "start:render": "concurrently -k -n web,scheduler \"next start -p $PORT\" \"tsx scripts/scheduler.ts\"",
+    "lint": "next lint",
+    "postinstall": "prisma generate"
+  },
   "prisma": {
     "seed": "tsx --require dotenv/config scripts/seed.ts"
   },
@@ -30,7 +31,8 @@
     "tailwindcss-animate": "1.0.7",
     "ts-node": "10.9.2",
     "tsx": "4.20.3",
-    "typescript": "5.2.2"
+    "typescript": "5.2.2",
+    "concurrently": "^8.2.2"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.0.0",
