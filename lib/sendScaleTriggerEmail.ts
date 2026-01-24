@@ -63,11 +63,14 @@ export async function sendScaleTriggerEmail(
     const subjectLabel = "Envio escala";
     const subject = `[GESTAO_IGREJA]|${subjectLabel}|grupo=escala|membro=${params.memberName}`;
 
-    const escalaDoDia = `${label}: ${params.responsavelNome} (${params.dataEventoFmt})`;
+    // ✅ formato final exatamente como você pediu
+    // Escala do dia: (dataEvento)
+    // Dirigente: Nome
+    const base = `Escala do dia: ${params.dataEventoFmt}\n${label}: ${params.responsavelNome}`;
 
-    const mensagemFinal = params.mensagemOpcional?.trim()
-      ? `Escala do dia:\n${escalaDoDia}\n\nMensagem:\n${params.mensagemOpcional.trim()}`
-      : `Escala do dia:\n${escalaDoDia}`;
+    const msg = params.mensagemOpcional?.trim()
+      ? `${base}\nMensagem:\n${params.mensagemOpcional.trim()}`
+      : base;
 
     const htmlBody = `
       <div style="font-family: Arial, sans-serif; padding: 20px;">
@@ -81,7 +84,7 @@ export async function sendScaleTriggerEmail(
         <hr/>
         <p><strong>Mensagem:</strong></p>
         <pre style="white-space:pre-wrap; font-family: Arial, sans-serif;">${escapeHtml(
-          mensagemFinal
+          msg
         )}</pre>
       </div>
     `;
