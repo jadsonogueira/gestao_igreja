@@ -2,7 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
-import { RefreshCw, CalendarDays, Link2, X, Clock, ToggleLeft, ToggleRight } from "lucide-react";
+import {
+  RefreshCw,
+  CalendarDays,
+  Link2,
+  X,
+  Clock,
+  ToggleLeft,
+  ToggleRight,
+} from "lucide-react";
 import Button from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { EscalaTipo } from "@/lib/types";
@@ -11,12 +19,25 @@ type EscalaItem = {
   id: string;
   tipo: EscalaTipo;
   dataEvento: string; // ISO
+
+  // ✅ Vínculo (Etapa 4.1)
+  membroId?: string | null;
+  membroNome?: string | null;
+  nomeResponsavelRaw?: string | null;
+
+  // Nome resolvido (o GET pode montar isso para a UI)
   nomeResponsavel: string;
+
+  // Mensagem opcional
   mensagem?: string | null;
 
   // ✅ Etapa 3
   envioAutomatico?: boolean;
-  enviarEm?: string; // ISO
+  enviarEm?: string | null; // ISO
+
+  // (opcional: úteis para exibir depois, não quebra)
+  status?: string | null;
+  erroMensagem?: string | null;
 };
 
 type ApiResponse = {
@@ -66,7 +87,7 @@ function dateKeyFromISO(iso: string) {
 }
 
 // Converte ISO -> string do input datetime-local (YYYY-MM-DDTHH:mm)
-function isoToLocalInputValue(iso?: string) {
+function isoToLocalInputValue(iso?: string | null) {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
@@ -80,8 +101,6 @@ function isoToLocalInputValue(iso?: string) {
 
 // Converte input datetime-local -> ISO UTC
 function localInputToISO(value: string) {
-  // value: "YYYY-MM-DDTHH:mm"
-  // new Date(value) assume local timezone
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null;
   return d.toISOString();
@@ -105,6 +124,8 @@ export default function EscalaPage() {
   // vínculo
   const [memberSearch, setMemberSearch] = useState("");
   const [selectedMemberId, setSelectedMemberId] = useState<string>("");
+
+  // ✅ IMPORTANTE: isto é o RAW real do banco, não o nome resolvido
   const [nomeResponsavelRaw, setNomeResponsavelRaw] = useState<string>("");
 
   // ✅ Etapa 3
@@ -129,7 +150,9 @@ export default function EscalaPage() {
   const fetchEscala = useCallback(async () => {
     try {
       setRefreshing(true);
-      const res = await fetch(`/api/escala?days=${days}&start=${start}`, { cache: "no-store" });
+      const res = await fetch(`/api/escala?days=${days}&start=${start}`, {
+        cache: "no-store",
+      });
       const json = (await res.json()) as ApiResponse;
 
       if (!json?.ok) {
@@ -182,14 +205,14 @@ export default function EscalaPage() {
   const openModal = useCallback((it: EscalaItem) => {
     setSelectedItem(it);
 
-    // vínculo
-    setNomeResponsavelRaw(it.nomeResponsavel ?? "");
-    setSelectedMemberId("");
+    // ✅ vínculo: carregar dados reais do item
+    setNomeResponsavelRaw((it.nomeResponsavelRaw ?? "").toString());
+    setSelectedMemberId((it.membroId ?? "").toString());
     setMemberSearch("");
 
     // ✅ Etapa 3 (defaults do item)
     setEnvioAutomatico(it.envioAutomatico ?? true);
-    setEnviarEmLocal(isoToLocalInputValue(it.enviarEm));
+    setEnviarEmLocal(isoToLocalInputValue(it.enviarEm ?? null));
     setMensagem((it.mensagem ?? "").toString());
 
     setOpen(true);
@@ -233,7 +256,7 @@ export default function EscalaPage() {
       setSaving(true);
 
       const payload: any = {
-        // vínculo/fallback
+        // ✅ Etapa 4.1: salvar RAW (fallback)
         nomeResponsavelRaw: nomeResponsavelRaw?.trim() || null,
 
         // ✅ Etapa 3
@@ -244,6 +267,7 @@ export default function EscalaPage() {
       // se usuário setou enviarEm no campo, envia; senão não mexe
       if (enviarEmISO) payload.enviarEm = enviarEmISO;
 
+      // ✅ vínculo: se selecionou, manda o id; se não, desvincula
       if (selectedMemberId) {
         payload.membroId = selectedMemberId;
       } else {
@@ -342,30 +366,50 @@ export default function EscalaPage() {
                   </div>
 
                   <div className="mt-3 space-y-2">
-                    {list.map((it) => (
-                      <button
-                        key={it.id}
-                        onClick={() => openModal(it)}
-                        className="w-full text-left flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50 hover:bg-gray-100 transition rounded-lg px-3 py-2"
-                        title="Clique para editar/vincular"
-                      >
-                        <div className="font-medium text-gray-900 flex items-center gap-2">
-                          <Link2 className="w-4 h-4 text-gray-500" />
-                          {tipoLabel[it.tipo] ?? it.tipo}:{" "}
-                          <span className="font-semibold">{it.nomeResponsavel}</span>
-                        </div>
+                    {list.map((it) => {
+                      const vinculado = !!it.membroId;
 
-                        <div className="flex items-center gap-3">
-                          <div className="text-xs text-gray-500 flex items-center gap-1">
-                            <Clock className="w-4 h-4" />
-                            {it.enviarEm ? new Date(it.enviarEm).toLocaleString("pt-BR") : "sem horário"}
+                      return (
+                        <button
+                          key={it.id}
+                          onClick={() => openModal(it)}
+                          className="w-full text-left flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50 hover:bg-gray-100 transition rounded-lg px-3 py-2"
+                          title="Clique para editar/vincular"
+                        >
+                          <div className="font-medium text-gray-900 flex items-center gap-2">
+                            <Link2 className="w-4 h-4 text-gray-500" />
+                            {tipoLabel[it.tipo] ?? it.tipo}:{" "}
+                            <span className="font-semibold">
+                              {it.nomeResponsavel}
+                              {!vinculado && (
+                                <span className="ml-2 text-red-600 text-sm">
+                                  ⚠️ não vinculado
+                                </span>
+                              )}
+                            </span>
                           </div>
-                          <div className={cn("text-xs font-medium px-2 py-1 rounded-full", it.envioAutomatico ? "bg-green-100 text-green-700" : "bg-gray-200 text-gray-700")}>
-                            {it.envioAutomatico ? "Auto" : "Manual"}
+
+                          <div className="flex items-center gap-3">
+                            <div className="text-xs text-gray-500 flex items-center gap-1">
+                              <Clock className="w-4 h-4" />
+                              {it.enviarEm
+                                ? new Date(it.enviarEm).toLocaleString("pt-BR")
+                                : "sem horário"}
+                            </div>
+                            <div
+                              className={cn(
+                                "text-xs font-medium px-2 py-1 rounded-full",
+                                it.envioAutomatico
+                                  ? "bg-green-100 text-green-700"
+                                  : "bg-gray-200 text-gray-700"
+                              )}
+                            >
+                              {it.envioAutomatico ? "Auto" : "Manual"}
+                            </div>
                           </div>
-                        </div>
-                      </button>
-                    ))}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               ))}
@@ -436,10 +480,17 @@ export default function EscalaPage() {
                   <option value="">— não vincular (usar apenas texto) —</option>
                   {filteredMembers.map((m) => (
                     <option key={m.id} value={m.id}>
-                      {m.nome}{m.email ? ` (${m.email})` : ""}
+                      {m.nome}
+                      {m.email ? ` (${m.email})` : ""}
                     </option>
                   ))}
                 </select>
+
+                {!selectedMemberId && (
+                  <p className="text-xs text-red-600 mt-2">
+                    ⚠️ Sem vínculo com membro: o item ficará “não vinculado”.
+                  </p>
+                )}
               </div>
 
               {/* ✅ Etapa 3 - Programação */}
@@ -455,7 +506,9 @@ export default function EscalaPage() {
                     onClick={() => setEnvioAutomatico((v) => !v)}
                     className={cn(
                       "flex items-center gap-2 px-3 py-2 rounded-lg border",
-                      envioAutomatico ? "border-green-200 bg-green-50" : "border-gray-200 bg-gray-50"
+                      envioAutomatico
+                        ? "border-green-200 bg-green-50"
+                        : "border-gray-200 bg-gray-50"
                     )}
                   >
                     {envioAutomatico ? (
@@ -464,7 +517,9 @@ export default function EscalaPage() {
                       <ToggleLeft className="w-5 h-5 text-gray-600" />
                     )}
                     <span className="text-sm font-medium text-gray-800">
-                      {envioAutomatico ? "Envio automático: ON" : "Envio automático: OFF"}
+                      {envioAutomatico
+                        ? "Envio automático: ON"
+                        : "Envio automático: OFF"}
                     </span>
                   </button>
                 </div>
