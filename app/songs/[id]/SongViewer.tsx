@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 
 import type { SongDetail } from "./page";
 import ChordPicker from "./ChordPicker";
-import AddToListButton from "../AddToListButton";
 import {
   transposeChord,
   transposeChordTokens,
@@ -53,34 +53,49 @@ function deepCloneParts(parts: SongPart[]): SongPart[] {
   }));
 }
 
+function inferKeyFromParts(parts: SongPart[]): string | null {
+  for (const p of parts ?? []) {
+    for (const l of p.lines ?? []) {
+      for (const c of l.chords ?? []) {
+        const chord = String(c?.chord ?? "").trim();
+        if (!chord) continue;
+        const m = chord.match(/^([A-Ga-g])([#b]?)/);
+        if (!m) continue;
+        return `${m[1].toUpperCase()}${m[2] ?? ""}`;
+      }
+    }
+  }
+  return null;
+}
+
 export default function SongViewer({ song }: { song: SongDetail }) {
+  const router = useRouter();
+
   const [transpose, setTranspose] = useState(0);
   const accidentalPref: AccidentalPref = "sharp";
 
+  // tom “do banco” (pra atualizar depois do save)
+  const [savedOriginalKey, setSavedOriginalKey] = useState(song.originalKey);
+
+  // base editável (sem transposição aplicada)
   const [partsBase, setPartsBase] = useState<SongPart[]>(
     () => deepCloneParts(song.content?.parts ?? [])
   );
 
-  const [savedSnapshot, setSavedSnapshot] = useState<string>(() =>
-    JSON.stringify(song.content?.parts ?? [])
-  );
+  // snapshot inicial pra detectar “dirty”
+  const [snapshot] = useState(() => JSON.stringify(song.content?.parts ?? []));
 
-  const [saving, setSaving] = useState(false);
+  const dirty = useMemo(() => {
+    return JSON.stringify(partsBase) !== snapshot;
+  }, [partsBase, snapshot]);
 
-  const isDirty = useMemo(() => {
-    try {
-      return JSON.stringify(partsBase) !== savedSnapshot;
-    } catch {
-      return true;
-    }
-  }, [partsBase, savedSnapshot]);
-
+  // chord picker state
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selected, setSelected] = useState<{
     partIdx: number;
     lineIdx: number;
     chordIdx: number;
-    displayChord: string;
+    displayChord: string; // acorde já transposto (o que o usuário vê)
   } | null>(null);
 
   const parts = useMemo(() => partsBase ?? [], [partsBase]);
@@ -98,6 +113,7 @@ export default function SongViewer({ song }: { song: SongDetail }) {
   function applyPickedChord(newChordShown: string) {
     if (!selected) return;
 
+    // ✅ converte o acorde escolhido (na view transposta) de volta para a base
     const newChordBase =
       transpose !== 0
         ? transposeChord(newChordShown, -transpose, accidentalPref)
@@ -117,51 +133,58 @@ export default function SongViewer({ song }: { song: SongDetail }) {
     setSelected(null);
   }
 
-  async function saveToDatabase() {
-    if (saving) return;
-
-    if (!isDirty) {
-      toast("Nenhuma alteração para salvar.");
-      return;
-    }
-
-    setSaving(true);
+  async function handleSave() {
     const t = toast.loading("Salvando...");
 
     try {
+      // ✅ não salva transposição (é só visual)
+      const inferred = inferKeyFromParts(partsBase);
+
       const res = await fetch(`/api/songs/${song.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           content: { parts: partsBase },
+          // tags: song.tags (se quiser mandar)
+          // originalKey é inferido no backend, mas aqui ajuda
+          originalKey: inferred ?? savedOriginalKey,
         }),
       });
 
       const json = await res.json();
 
       if (!res.ok || !json?.success) {
-        throw new Error(json?.error || "Falha ao salvar");
+        throw new Error(json?.error || "Erro ao salvar");
       }
 
-      setSavedSnapshot(JSON.stringify(partsBase));
-      toast.success("Salvo com sucesso!", { id: t });
+      // atualiza o tom na tela
+      setSavedOriginalKey(json.data.originalKey ?? savedOriginalKey);
+
+      toast.success("Tudo salvo.", { id: t });
+      // força revalidar / recarregar server components se houver
+      router.refresh();
     } catch (e: any) {
-      console.error(e);
       toast.error(e?.message || "Erro ao salvar", { id: t });
-    } finally {
-      setSaving(false);
     }
   }
 
   return (
     <main className="mx-auto max-w-3xl p-4">
       <div className="mb-4 rounded-xl border p-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold">{song.title}</h1>
+            <button
+              className="text-sm underline opacity-70"
+              onClick={() => router.back()}
+            >
+              ← Voltar
+            </button>
+
+            <h1 className="text-2xl font-semibold mt-2">{song.title}</h1>
+
             <div className="text-sm opacity-80">
               {song.artist ? `${song.artist} • ` : ""}
-              Tom original: <strong>{song.originalKey}</strong>
+              Tom original: <strong>{savedOriginalKey}</strong>
               {transpose !== 0 ? (
                 <>
                   {" "}
@@ -171,6 +194,10 @@ export default function SongViewer({ song }: { song: SongDetail }) {
                   </span>
                 </>
               ) : null}
+            </div>
+
+            <div className="mt-2 text-sm opacity-70">
+              {dirty ? "Alterações pendentes." : "Tudo salvo."}
             </div>
 
             {song.tags?.length ? (
@@ -198,7 +225,7 @@ export default function SongViewer({ song }: { song: SongDetail }) {
             <button
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={() => setTranspose(0)}
-              title="Voltar ao tom original"
+              title="Voltar ao tom original (visual)"
             >
               0
             </button>
@@ -210,28 +237,15 @@ export default function SongViewer({ song }: { song: SongDetail }) {
               +1
             </button>
 
-            {/* ✅ adicionar à lista dentro do viewer */}
-            <AddToListButton songId={song.id} />
-
             <button
-              className="rounded-lg border px-3 py-2 text-sm font-semibold"
-              onClick={saveToDatabase}
-              disabled={!isDirty || saving}
-              title={!isDirty ? "Nada para salvar" : "Salvar alterações"}
+              className="rounded-lg border px-3 py-2 text-sm"
+              onClick={handleSave}
+              disabled={!dirty}
+              title={dirty ? "Salvar alterações" : "Nada para salvar"}
             >
-              {saving ? "Salvando..." : "Salvar"}
+              Salvar
             </button>
           </div>
-        </div>
-
-        <div className="mt-2 text-xs opacity-70">
-          {isDirty ? (
-            <>
-              Alterações pendentes — clique em <strong>Salvar</strong>.
-            </>
-          ) : (
-            <>Tudo salvo.</>
-          )}
         </div>
       </div>
 
