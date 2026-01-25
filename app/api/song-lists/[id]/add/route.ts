@@ -19,8 +19,17 @@ export async function POST(req: Request, { params }: Params) {
       );
     }
 
+    // ✅ define order = (maior order atual) + 1
+    const max = await prisma.songListItem.findFirst({
+      where: { listId },
+      orderBy: [{ order: "desc" }, { createdAt: "desc" }],
+      select: { order: true },
+    });
+
+    const nextOrder = (max?.order ?? 0) + 1;
+
     await prisma.songListItem.create({
-      data: { listId, songId },
+      data: { listId, songId, order: nextOrder },
     });
 
     return NextResponse.json({ success: true });
