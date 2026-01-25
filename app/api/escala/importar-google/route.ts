@@ -29,6 +29,21 @@ function defaultEnviarEmFromDataEvento(dateEventoUTC00: Date) {
   return d;
 }
 
+function msDiff(a: Date, b: Date) {
+  return Math.abs(a.getTime() - b.getTime());
+}
+
+/**
+ * Se o enviarEm atual parece ser "o default" calculado anteriormente,
+ * atualizamos para o novo default quando o evento muda de data.
+ * Se o usuário editou manualmente, preservamos.
+ */
+function shouldUpdateEnviarEm(existingEnviarEm: Date, existingDataEvento: Date) {
+  const oldDefault = defaultEnviarEmFromDataEvento(existingDataEvento);
+  // tolerância de 2 minutos
+  return msDiff(existingEnviarEm, oldDefault) <= 2 * 60 * 1000;
+}
+
 type GoogleEvent = {
   id?: string;
   summary?: string | null;
@@ -198,10 +213,12 @@ export async function POST(req: Request) {
 
     let created = 0;
     let updated = 0;
+    let moved = 0; // ✅ eventos que já existiam pelo googleEventId e mudaram data/tipo
+    let merged = 0; // ✅ quando precisou “fundir” por conflito de unique tipo+data
     let parsed = 0;
     let ignored = 0;
     let matchedMembers = 0;
-    let preservedLinks = 0; // ✅ quantos vínculos foram preservados no pull
+    let preservedLinks = 0;
 
     const sampleParsed: any[] = [];
     const ignoredList: any[] = [];
@@ -227,78 +244,151 @@ export async function POST(req: Request) {
 
       parsed++;
 
-      const { roleEnum, roleRaw, nameRaw } = parsedResult;
+      const { roleEnum, nameRaw } = parsedResult;
 
       // tenta casar member pelo nome (auto-vínculo)
       const cleaned = stripCommonPrefixes(nameRaw);
       const key1 = normalizeBasic(nameRaw);
       const key2 = normalizeBasic(cleaned);
       const memberMatched = memberIndex.get(key2) ?? memberIndex.get(key1) ?? null;
-
       if (memberMatched) matchedMembers++;
 
-      const enviarEm = defaultEnviarEmFromDataEvento(dateEvento);
-
-      const where = {
+      // ✅ registro “alvo” pela UNIQUE principal (tipo+dataEvento)
+      const whereTipoData = {
         tipo_dataEvento: {
           tipo: roleEnum as any,
           dataEvento: dateEvento,
         },
       };
 
-      const existing = await prisma.escala.findUnique({ where });
+      // ✅ o mais importante: procurar pelo googleEventId (evento movido)
+      const googleEventId = (ev.id ?? "").trim() || null;
 
-      if (!existing) {
-        // ✅ NOVO: cria já com auto-vínculo (se encontrar)
-        await prisma.escala.create({
+      const existingByGoogle =
+        googleEventId
+          ? await prisma.escala.findFirst({
+              where: {
+                googleCalendarId: calendarId,
+                googleEventId: googleEventId,
+              },
+            })
+          : null;
+
+      // calcular enviarEm default para ESTA data do evento
+      const enviarEmDefaultNew = defaultEnviarEmFromDataEvento(dateEvento);
+
+      // helper: decide vínculo final (preserva se já tinha)
+      const pickLink = (existing: any) => {
+        const hasLink = !!existing?.membroId;
+        if (hasLink) {
+          preservedLinks++;
+          return { membroId: existing.membroId, membroNome: existing.membroNome ?? null, hasLink: true };
+        }
+        return { membroId: memberMatched?.id ?? null, membroNome: memberMatched?.nome ?? null, hasLink: false };
+      };
+
+      // ✅ CASO 1: já existe pelo googleEventId → atualizar/mover
+      if (existingByGoogle) {
+        const existing = existingByGoogle as any;
+
+        const sameTipo = String(existing.tipo) === String(roleEnum);
+        const sameDate = new Date(existing.dataEvento).getTime() === dateEvento.getTime();
+        const willMove = !(sameTipo && sameDate);
+
+        // vínculo
+        const link = pickLink(existing);
+
+        // enviarEm: atualiza só se parecia default antigo
+        let enviarEmFinal = existing.enviarEm ? new Date(existing.enviarEm) : enviarEmDefaultNew;
+        if (existing.enviarEm && existing.dataEvento) {
+          const should = shouldUpdateEnviarEm(new Date(existing.enviarEm), new Date(existing.dataEvento));
+          if (should) enviarEmFinal = enviarEmDefaultNew;
+        } else {
+          enviarEmFinal = enviarEmDefaultNew;
+        }
+
+        // ⚠️ se mudou tipo/data, pode conflitar com @@unique(tipo,dataEvento)
+        // então checamos se já existe outro registro com esse tipo+data
+        const existingTarget = await prisma.escala.findUnique({ where: whereTipoData });
+
+        if (existingTarget && String(existingTarget.id) !== String(existing.id)) {
+          // ✅ MERGE: manter o registro do target (porque ele já ocupa tipo+data)
+          // e mover o googleEventId para ele; apagar o antigo.
+          // preserva edição do target (mensagem/envioAutomatico/enviarEm/status etc.)
+          // mas: se o target não tiver vínculo, tentamos preencher.
+          const targetAny = existingTarget as any;
+          const targetHasLink = !!targetAny.membroId;
+          const targetLink = targetHasLink
+            ? { membroId: targetAny.membroId, membroNome: targetAny.membroNome ?? null }
+            : { membroId: link.membroId, membroNome: link.membroNome };
+
+          // enviarEm do target: só seta default se estiver vazio
+          const targetEnviarEmFinal = targetAny.enviarEm
+            ? new Date(targetAny.enviarEm)
+            : enviarEmDefaultNew;
+
+          await prisma.escala.update({
+            where: { id: targetAny.id },
+            data: {
+              // garante google ids
+              googleEventId: googleEventId,
+              googleCalendarId: calendarId,
+              source: "GOOGLE",
+              lastSyncedAt: new Date(),
+
+              // atualiza raw sempre
+              nomeResponsavelRaw: nameRaw,
+
+              // tenta garantir vínculo se estava vazio
+              membroId: targetLink.membroId,
+              membroNome: targetLink.membroNome,
+
+              // enviarEm só se estava vazio
+              enviarEm: targetEnviarEmFinal,
+
+              // (não mexe em mensagem/envioAutomatico/status do target)
+            },
+          });
+
+          await prisma.escala.delete({ where: { id: existing.id } }).catch(() => null);
+
+          merged++;
+          if (willMove) moved++;
+
+          if (sampleParsed.length < 14) {
+            sampleParsed.push({
+              mode: "merge",
+              googleEventId,
+              fromId: existing.id,
+              toId: targetAny.id,
+              roleEnum,
+              dateEvento: dateEvento.toISOString(),
+              matchedMember: memberMatched?.nome ?? null,
+            });
+          }
+
+          continue;
+        }
+
+        // ✅ sem conflito: atualiza o MESMO registro (mover)
+        await prisma.escala.update({
+          where: { id: existing.id },
           data: {
             tipo: roleEnum as any,
             dataEvento: dateEvento,
-            membroId: memberMatched?.id ?? null,
-            membroNome: memberMatched?.nome ?? null,
-            nomeResponsavelRaw: nameRaw,
-            mensagem: null,
-            envioAutomatico: true,
-            enviarEm,
-            status: "PENDENTE",
-            googleEventId: ev.id ?? null,
-            googleCalendarId: calendarId,
-            source: "GOOGLE",
-            lastSyncedAt: new Date(),
-          },
-        });
-        created++;
-      } else {
-        /**
-         * ✅ REGRA DE OURO (Problema 3):
-         * Se já existe membroId, NÃO altere o vínculo no pull do Google.
-         * Só tenta auto-vincular quando está vazio.
-         */
-        const hasLink = !!existing.membroId;
 
-        const finalMemberId = hasLink
-          ? existing.membroId
-          : (memberMatched?.id ?? null);
+            // vínculo
+            membroId: link.membroId,
+            membroNome: link.membroNome,
 
-        const finalMemberNome = hasLink
-          ? (existing.membroNome ?? null)
-          : (memberMatched?.nome ?? null);
-
-        if (hasLink) preservedLinks++;
-
-        // ✅ Atualiza campos do Google e raw, mas preserva vínculo se já existia
-        await prisma.escala.update({
-          where,
-          data: {
-            // vínculo (preservado ou preenchido somente se estava vazio)
-            membroId: finalMemberId,
-            membroNome: finalMemberNome,
-
-            // manter o texto cru do calendar sempre atualizado (ajuda auditoria)
+            // raw
             nomeResponsavelRaw: nameRaw,
 
-            // não mexe em mensagem/status aqui
-            googleEventId: ev.id ?? existing.googleEventId ?? null,
+            // enviarEm (respeita manual)
+            enviarEm: enviarEmFinal,
+
+            // google meta
+            googleEventId: googleEventId,
             googleCalendarId: calendarId,
             source: "GOOGLE",
             lastSyncedAt: new Date(),
@@ -306,21 +396,100 @@ export async function POST(req: Request) {
         });
 
         updated++;
+        if (willMove) moved++;
+
+        if (sampleParsed.length < 14) {
+          sampleParsed.push({
+            mode: willMove ? "moved" : "updated",
+            googleEventId,
+            id: existing.id,
+            roleEnum,
+            dateEvento: dateEvento.toISOString(),
+            matchedMember: memberMatched?.nome ?? null,
+            note: link.hasLink ? "link_preserved" : (memberMatched ? "linked_by_name" : "still_unlinked"),
+          });
+        }
+
+        continue;
       }
 
-      if (sampleParsed.length < 14) {
-        sampleParsed.push({
-          roleEnum,
-          title,
-          roleRaw,
-          nameRaw,
-          cleaned,
-          dateEvento: dateEvento.toISOString(),
-          matchedMember: memberMatched?.nome ?? null,
-          note: existing?.membroId
-            ? "link_preserved"
-            : (memberMatched ? "linked_by_name" : "still_unlinked"),
+      // ✅ CASO 2: não achou pelo googleEventId → fluxo antigo (tipo+data)
+      const existingByTipoData = await prisma.escala.findUnique({ where: whereTipoData });
+
+      if (!existingByTipoData) {
+        // cria novo
+        await prisma.escala.create({
+          data: {
+            tipo: roleEnum as any,
+            dataEvento: dateEvento,
+
+            membroId: memberMatched?.id ?? null,
+            membroNome: memberMatched?.nome ?? null,
+            nomeResponsavelRaw: nameRaw,
+
+            mensagem: null,
+            envioAutomatico: true,
+            enviarEm: enviarEmDefaultNew,
+            status: "PENDENTE",
+
+            googleEventId,
+            googleCalendarId: calendarId,
+            source: "GOOGLE",
+            lastSyncedAt: new Date(),
+          },
         });
+        created++;
+
+        if (sampleParsed.length < 14) {
+          sampleParsed.push({
+            mode: "created",
+            googleEventId,
+            roleEnum,
+            dateEvento: dateEvento.toISOString(),
+            matchedMember: memberMatched?.nome ?? null,
+          });
+        }
+      } else {
+        // atualiza existente tipo+data (preservando vínculo se já havia)
+        const existing = existingByTipoData as any;
+        const hasLink = !!existing.membroId;
+
+        const finalMemberId = hasLink ? existing.membroId : (memberMatched?.id ?? null);
+        const finalMemberNome = hasLink ? (existing.membroNome ?? null) : (memberMatched?.nome ?? null);
+        if (hasLink) preservedLinks++;
+
+        // enviarEm: se estiver vazio, seta default
+        const enviarEmFinal = existing.enviarEm ? new Date(existing.enviarEm) : enviarEmDefaultNew;
+
+        await prisma.escala.update({
+          where: whereTipoData,
+          data: {
+            membroId: finalMemberId,
+            membroNome: finalMemberNome,
+            nomeResponsavelRaw: nameRaw,
+
+            // não mexe em mensagem/status/envioAutomatico
+            enviarEm: enviarEmFinal,
+
+            googleEventId: googleEventId ?? existing.googleEventId ?? null,
+            googleCalendarId: calendarId,
+            source: "GOOGLE",
+            lastSyncedAt: new Date(),
+          },
+        });
+
+        updated++;
+
+        if (sampleParsed.length < 14) {
+          sampleParsed.push({
+            mode: "updated_tipo_data",
+            googleEventId,
+            roleEnum,
+            dateEvento: dateEvento.toISOString(),
+            matchedMember: memberMatched?.nome ?? null,
+            note: hasLink ? "link_preserved" : (memberMatched ? "linked_by_name" : "still_unlinked"),
+          });
+        }
       }
     }
 
@@ -332,6 +501,8 @@ export async function POST(req: Request) {
         parsed,
         created,
         updated,
+        moved,
+        merged,
         ignored,
         matchedMembers,
         preservedLinks,
