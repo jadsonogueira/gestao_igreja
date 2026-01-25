@@ -4,46 +4,80 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
 
-type Params = { params: { id: string } };
+type Params = {
+  params: { id: string };
+};
 
 export async function POST(req: Request, { params }: Params) {
   try {
     const listId = params.id;
-    const body = await req.json().catch(() => null);
-    const songId = String(body?.songId ?? "").trim();
 
-    if (!songId) {
+    if (!listId) {
+      return NextResponse.json(
+        { success: false, error: "ID da lista não informado" },
+        { status: 400 }
+      );
+    }
+
+    const body = await req.json().catch(() => null);
+    const songId = body?.songId;
+
+    if (!songId || typeof songId !== "string") {
       return NextResponse.json(
         { success: false, error: "songId é obrigatório" },
         { status: 400 }
       );
     }
 
-    // ✅ define order = (maior order atual) + 1
-    const max = await prisma.songListItem.findFirst({
-      where: { listId },
-      orderBy: [{ order: "desc" }, { createdAt: "desc" }],
-      select: { order: true },
+    // garante que lista existe
+    const list = await prisma.songList.findUnique({
+      where: { id: listId },
+      select: { id: true },
     });
 
-    const nextOrder = (max?.order ?? 0) + 1;
-
-    await prisma.songListItem.create({
-      data: { listId, songId, order: nextOrder },
-    });
-
-    return NextResponse.json({ success: true });
-  } catch (error: any) {
-    // Já existe na lista (unique listId+songId)
-    if (error?.code === "P2002") {
+    if (!list) {
       return NextResponse.json(
-        { success: true, data: { already: true } } // idempotente
+        { success: false, error: "Lista não encontrada" },
+        { status: 404 }
       );
     }
 
-    console.error("POST /api/song-lists/[id]/add error:", error);
+    // evita duplicar
+    const existing = await prisma.songListItem.findFirst({
+      where: { listId, songId },
+      select: { id: true },
+    });
+
+    if (existing) {
+      return NextResponse.json({
+        success: true,
+        data: { alreadyExists: true },
+      });
+    }
+
+    // coloca no final (maior order + 1)
+    const last = await prisma.songListItem.findFirst({
+      where: { listId },
+      orderBy: { order: "desc" },
+      select: { order: true },
+    });
+
+    const nextOrder = (last?.order ?? 0) + 1;
+
+    const created = await prisma.songListItem.create({
+      data: {
+        listId,
+        songId,
+        order: nextOrder,
+      },
+      select: { id: true, order: true, listId: true, songId: true },
+    });
+
+    return NextResponse.json({ success: true, data: created });
+  } catch (error) {
+    console.error("Error adding song to list:", error);
     return NextResponse.json(
-      { success: false, error: "Erro ao adicionar cifra na lista" },
+      { success: false, error: "Erro ao adicionar música na lista" },
       { status: 500 }
     );
   }
