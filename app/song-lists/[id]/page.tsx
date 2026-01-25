@@ -24,6 +24,10 @@ type SongListDetail = {
   items: ListItem[];
 };
 
+function normKey(k?: string | null) {
+  return String(k ?? "").trim().toUpperCase();
+}
+
 async function copyToClipboard(text: string) {
   if (navigator?.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -48,7 +52,7 @@ function buildExportText(listName: string, items: ListItem[]) {
   items.forEach((it, i) => {
     const s = it.song;
     const artist = s.artist ? ` - ${s.artist}` : "";
-    lines.push(`${i + 1}. ${s.title}${artist} (Tom: ${s.originalKey})`);
+    lines.push(`${i + 1}. ${s.title}${artist} (Tom: ${normKey(s.originalKey)})`);
   });
 
   return lines.join("\n");
@@ -62,7 +66,7 @@ function buildExportMarkdown(listName: string, items: ListItem[]) {
   items.forEach((it, i) => {
     const s = it.song;
     const artist = s.artist ? ` — _${s.artist}_` : "";
-    lines.push(`*${i + 1}.* *${s.title}*${artist}  _(Tom: ${s.originalKey})_`);
+    lines.push(`*${i + 1}.* *${s.title}*${artist}  _(Tom: ${normKey(s.originalKey)})_`);
   });
 
   return lines.join("\n");
@@ -216,7 +220,7 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
 
     return items.filter((it) => {
       const s = it.song;
-      const hay = [s.title, s.artist ?? "", s.originalKey, ...(s.tags ?? [])]
+      const hay = [s.title, s.artist ?? "", normKey(s.originalKey), ...(s.tags ?? [])]
         .join(" ")
         .toLowerCase();
 
@@ -347,7 +351,7 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
                   </a>
                   <div className="text-xs opacity-70">
                     {s.artist ? `${s.artist} • ` : ""}
-                    Tom: <strong>{s.originalKey}</strong>
+                    Tom: <strong>{normKey(s.originalKey)}</strong>
                   </div>
                 </div>
 
@@ -391,9 +395,7 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
                 <div className="text-sm font-semibold">
                   Exportar ({exportMode === "md" ? "Markdown" : "Texto"})
                 </div>
-                <div className="text-xs opacity-70">
-                  Exporta respeitando a busca.
-                </div>
+                <div className="text-xs opacity-70">Exporta respeitando a busca.</div>
               </div>
 
               <button
@@ -433,9 +435,7 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold">Duplicar lista</div>
-                <div className="text-xs opacity-70">
-                  Se deixar em branco, cria “(cópia)”.
-                </div>
+                <div className="text-xs opacity-70">Se deixar em branco, cria “(cópia)”.</div>
               </div>
 
               <button
