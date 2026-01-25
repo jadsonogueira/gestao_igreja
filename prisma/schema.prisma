@@ -195,6 +195,9 @@ model Song {
   // Tags livres (louvor, ceia, natal, congregacional...)
   tags String[] @default([])
 
+  // ✅ inverso para SongListItem
+  listItems SongListItem[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -202,6 +205,10 @@ model Song {
   @@index([searchIndex])
   @@index([originalKey])
 }
+
+//////////////////////////////////////////////////////
+// ✅ LISTAS DE CIFRAS
+//////////////////////////////////////////////////////
 
 model SongList {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -212,8 +219,8 @@ model SongList {
   // relação N:N
   items SongListItem[]
 
+  // ✅ unique já cria índice (não duplicar com @@index)
   @@unique([name])
-  @@index([name])
 }
 
 model SongListItem {
