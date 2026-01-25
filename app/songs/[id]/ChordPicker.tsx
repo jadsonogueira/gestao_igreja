@@ -19,6 +19,12 @@ type Quality =
   | "dim"
   | "aug";
 
+type ParsedSimple = {
+  root: string;
+  acc: Accidental;
+  quality: Quality;
+};
+
 const ROOTS = ["C", "D", "E", "F", "G", "A", "B"] as const;
 
 const QUALITY_OPTIONS: Array<{ value: Quality; label: string }> = [
@@ -54,21 +60,27 @@ function buildChord(root: string, acc: Accidental, quality: Quality) {
   return `${root}${accToText(acc)}${quality}`;
 }
 
-function safeParseChord(chord: string) {
-  // parse simples: Root A-G + (#|b)? + resto
+function safeParseChord(chord: string): ParsedSimple {
   const raw = (chord ?? "").trim();
+
   const m = raw.match(/^([A-G])(#|b)?(.*)$/);
   if (!m) {
-    return { root: "C", acc: "natural" as Accidental, quality: "" as Quality };
+    return { root: "C", acc: "natural", quality: "" };
   }
 
   const root = m[1];
-  const acc = m[2] === "#" ? "sharp" : m[2] === "b" ? "flat" : "natural";
+  const acc: Accidental =
+    m[2] === "#"
+      ? "sharp"
+      : m[2] === "b"
+      ? "flat"
+      : "natural";
+
   const rest = (m[3] ?? "").trim();
 
-  // tenta mapear rest para uma quality conhecida (se não, cai em "")
-  const known = QUALITY_OPTIONS.map((q) => q.value);
-  const quality = (known.includes(rest as any) ? (rest as Quality) : "") as Quality;
+  // quality: só aceitamos as opções conhecidas (se não for, cai em "")
+  const known = new Set(QUALITY_OPTIONS.map((q) => q.value));
+  const quality: Quality = known.has(rest as Quality) ? (rest as Quality) : "";
 
   return { root, acc, quality };
 }
@@ -113,7 +125,9 @@ export default function ChordPicker(props: {
       <div className="absolute bottom-0 left-0 right-0 mx-auto w-full max-w-3xl rounded-t-2xl border bg-white p-4 shadow-xl dark:bg-neutral-950 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <div className="text-xs uppercase tracking-wide opacity-70">Editar acorde</div>
+            <div className="text-xs uppercase tracking-wide opacity-70">
+              Editar acorde
+            </div>
             <div className="text-lg font-semibold font-mono">{preview}</div>
           </div>
 
@@ -186,8 +200,8 @@ export default function ChordPicker(props: {
         </div>
 
         <div className="mt-4 text-xs opacity-60">
-          Dica: a ordem é exatamente a que combinamos — <strong>Nota</strong> →{" "}
-          <strong>Acidente</strong> → <strong>Variação</strong>.
+          Ordem: <strong>Nota</strong> → <strong>Acidente</strong> →{" "}
+          <strong>Variação</strong>.
         </div>
       </div>
     </div>
