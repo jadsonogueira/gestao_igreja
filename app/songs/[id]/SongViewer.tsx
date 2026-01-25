@@ -103,23 +103,20 @@ function transposePartsBase(parts: SongPart[], semitones: number, accidentalPref
   }));
 }
 
+type ListOption = { id: string; name: string };
+
 export default function SongViewer({ song }: { song: SongDetail }) {
   const router = useRouter();
 
   const accidentalPref: AccidentalPref = "sharp";
 
-  // ✅ tom salvo no banco (vai mudar quando você salvar uma transposição)
   const [savedOriginalKey, setSavedOriginalKey] = useState<string>(normKey(song.originalKey));
-
-  // ✅ base editável da cifra (sem transposição aplicada)
   const [partsBase, setPartsBase] = useState<SongPart[]>(
     () => deepCloneParts(song.content?.parts ?? [])
   );
 
-  // ✅ transposição (agora pode virar persistência no save)
   const [transpose, setTranspose] = useState(0);
 
-  // ✅ snapshot (para dirty)
   const [snapshot, setSnapshot] = useState(() =>
     JSON.stringify({
       parts: song.content?.parts ?? [],
@@ -128,14 +125,11 @@ export default function SongViewer({ song }: { song: SongDetail }) {
   );
 
   const dirty = useMemo(() => {
-    // se só mudou a transposição, ainda é “dirty” (porque salvar vai persistir)
     if (transpose !== 0) return true;
-
     const now = JSON.stringify({ parts: partsBase, originalKey: savedOriginalKey });
     return now !== snapshot;
   }, [partsBase, savedOriginalKey, snapshot, transpose]);
 
-  // chord picker state
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selected, setSelected] = useState<{
     partIdx: number;
@@ -147,10 +141,59 @@ export default function SongViewer({ song }: { song: SongDetail }) {
   const parts = useMemo(() => partsBase ?? [], [partsBase]);
 
   const currentKey = useMemo(() => {
-    // Tom que o usuário está “vendo agora”
     return transposeKey(savedOriginalKey, transpose);
   }, [savedOriginalKey, transpose]);
 
+  // ====== ADD TO LIST MODAL ======
+  const [listModalOpen, setListModalOpen] = useState(false);
+  const [listsLoading, setListsLoading] = useState(false);
+  const [lists, setLists] = useState<ListOption[]>([]);
+  const [selectedListId, setSelectedListId] = useState<string>("");
+
+  async function loadLists() {
+    setListsLoading(true);
+    try {
+      const res = await fetch("/api/song-lists", { cache: "no-store" });
+      const json = await res.json();
+      if (!res.ok || !json?.success) throw new Error(json?.error || "Erro ao listar");
+      setLists((json.data ?? []).map((x: any) => ({ id: x.id, name: x.name })));
+    } finally {
+      setListsLoading(false);
+    }
+  }
+
+  function openAddToList() {
+    setListModalOpen(true);
+    setSelectedListId("");
+    loadLists().catch((e: any) => toast.error(e?.message || "Erro ao carregar listas"));
+  }
+
+  async function addToList() {
+    if (!selectedListId) return toast.error("Escolha uma lista");
+
+    const t = toast.loading("Adicionando na lista...");
+    try {
+      const res = await fetch(`/api/song-lists/${selectedListId}/add`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ songId: song.id }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) throw new Error(json?.error || "Erro ao adicionar");
+
+      if (json?.data?.alreadyExists) {
+        toast.success("Já estava na lista.", { id: t });
+      } else {
+        toast.success("Adicionado!", { id: t });
+      }
+
+      setListModalOpen(false);
+    } catch (e: any) {
+      toast.error(e?.message || "Erro", { id: t });
+    }
+  }
+
+  // ====== PICKER ======
   function openPicker(partIdx: number, lineIdx: number, chordIdx: number, chordShown: string) {
     setSelected({ partIdx, lineIdx, chordIdx, displayChord: chordShown });
     setPickerOpen(true);
@@ -159,7 +202,6 @@ export default function SongViewer({ song }: { song: SongDetail }) {
   function applyPickedChord(newChordShown: string) {
     if (!selected) return;
 
-    // converte o acorde escolhido (na view transposta) de volta para a base
     const newChordBase =
       transpose !== 0
         ? transposeChord(newChordShown, -transpose, accidentalPref)
@@ -188,13 +230,11 @@ export default function SongViewer({ song }: { song: SongDetail }) {
     const t = toast.loading("Salvando...");
 
     try {
-      // ✅ Se tiver transposição, vamos “aplicar” na base e salvar de verdade
       const partsToSave =
         transpose !== 0
           ? transposePartsBase(partsBase, transpose, accidentalPref)
           : deepCloneParts(partsBase);
 
-      // ✅ O novo “tom original” vira o tom atual
       const newOriginalKey = currentKey;
 
       const res = await fetch(`/api/songs/${song.id}`, {
@@ -209,7 +249,6 @@ export default function SongViewer({ song }: { song: SongDetail }) {
       const json = await res.json();
       if (!res.ok || !json?.success) throw new Error(json?.error || "Erro ao salvar");
 
-      // ✅ atualiza estados locais
       const serverKey = normKey(json?.data?.originalKey ?? newOriginalKey);
 
       setPartsBase(partsToSave);
@@ -298,6 +337,14 @@ export default function SongViewer({ song }: { song: SongDetail }) {
 
             <button
               className="rounded-lg border px-3 py-2 text-sm"
+              onClick={openAddToList}
+              title="Adicionar em uma lista"
+            >
+              + Lista
+            </button>
+
+            <button
+              className="rounded-lg border px-3 py-2 text-sm"
               onClick={handleSave}
               disabled={!dirty}
               title={dirty ? "Salvar alterações" : "Nada para salvar"}
@@ -365,6 +412,69 @@ export default function SongViewer({ song }: { song: SongDetail }) {
       <div className="mt-8 text-xs opacity-60">
         ID: <span className="font-mono">{song.id}</span>
       </div>
+
+      {/* MODAL ADICIONAR NA LISTA */}
+      {listModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div className="w-full max-w-xl rounded-xl border bg-white p-4 shadow-lg dark:bg-black">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">Adicionar em lista</div>
+                <div className="text-xs opacity-70">
+                  Escolha a lista onde quer adicionar esta cifra.
+                </div>
+              </div>
+
+              <button
+                className="text-sm underline opacity-70"
+                onClick={() => setListModalOpen(false)}
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              <label className="text-xs opacity-70">Lista</label>
+
+              <select
+                className="w-full border rounded px-3 py-2 text-sm"
+                value={selectedListId}
+                onChange={(e) => setSelectedListId(e.target.value)}
+                disabled={listsLoading}
+              >
+                <option value="">
+                  {listsLoading ? "Carregando..." : "Selecione..."}
+                </option>
+                {lists.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.name}
+                  </option>
+                ))}
+              </select>
+
+              <div className="text-xs opacity-60">
+                {listsLoading ? "Buscando listas..." : `${lists.length} listas encontradas`}
+              </div>
+            </div>
+
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                className="border rounded px-3 py-2 text-sm"
+                onClick={addToList}
+                disabled={!selectedListId || listsLoading}
+              >
+                Adicionar
+              </button>
+              <button
+                className="border rounded px-3 py-2 text-sm"
+                onClick={() => setListModalOpen(false)}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <ChordPicker
         open={pickerOpen}
