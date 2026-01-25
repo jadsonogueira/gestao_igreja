@@ -24,10 +24,6 @@ type SongListDetail = {
   items: ListItem[];
 };
 
-function normKey(k?: string | null) {
-  return String(k ?? "").trim().toUpperCase();
-}
-
 async function copyToClipboard(text: string) {
   if (navigator?.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
@@ -52,7 +48,7 @@ function buildExportText(listName: string, items: ListItem[]) {
   items.forEach((it, i) => {
     const s = it.song;
     const artist = s.artist ? ` - ${s.artist}` : "";
-    lines.push(`${i + 1}. ${s.title}${artist} (Tom: ${normKey(s.originalKey)})`);
+    lines.push(`${i + 1}. ${s.title}${artist} (Tom: ${s.originalKey})`);
   });
 
   return lines.join("\n");
@@ -66,7 +62,7 @@ function buildExportMarkdown(listName: string, items: ListItem[]) {
   items.forEach((it, i) => {
     const s = it.song;
     const artist = s.artist ? ` — _${s.artist}_` : "";
-    lines.push(`*${i + 1}.* *${s.title}*${artist}  _(Tom: ${normKey(s.originalKey)})_`);
+    lines.push(`*${i + 1}.* *${s.title}*${artist}  _(Tom: ${s.originalKey})_`);
   });
 
   return lines.join("\n");
@@ -77,22 +73,17 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
   const [loading, setLoading] = useState(true);
   const [movingId, setMovingId] = useState<string | null>(null);
 
-  // busca dentro da lista
   const [query, setQuery] = useState("");
 
-  // export modal
   const [exportOpen, setExportOpen] = useState(false);
   const [exportMode, setExportMode] = useState<"text" | "md">("text");
 
-  // duplicate modal
   const [dupOpen, setDupOpen] = useState(false);
   const [dupName, setDupName] = useState("");
 
-  // rename modal
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameName, setRenameName] = useState("");
 
-  // delete modal
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
 
@@ -206,7 +197,7 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
 
   useEffect(() => {
     load().catch((e) => {
-      toast.error(e?.message || "Erro ao carregar");
+      toast.error((e as any)?.message || "Erro ao carregar");
       setLoading(false);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -220,7 +211,7 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
 
     return items.filter((it) => {
       const s = it.song;
-      const hay = [s.title, s.artist ?? "", normKey(s.originalKey), ...(s.tags ?? [])]
+      const hay = [s.title, s.artist ?? "", s.originalKey, ...(s.tags ?? [])]
         .join(" ")
         .toLowerCase();
 
@@ -256,6 +247,10 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
         </div>
 
         <div className="flex flex-col gap-2 items-end">
+          <a className="border rounded px-3 py-2 text-sm" href={`/song-lists/${params.id}/culto`}>
+            Modo culto
+          </a>
+
           <a className="border rounded px-3 py-2 text-sm" href="/songs">
             Ver cifras
           </a>
@@ -351,7 +346,7 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
                   </a>
                   <div className="text-xs opacity-70">
                     {s.artist ? `${s.artist} • ` : ""}
-                    Tom: <strong>{normKey(s.originalKey)}</strong>
+                    Tom: <strong>{s.originalKey}</strong>
                   </div>
                 </div>
 
