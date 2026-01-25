@@ -217,13 +217,15 @@ model Song {
 model SongList {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   name      String
+
+  // ✅ Tom alvo da lista (ex: "D"). Se null, não fixa.
+  targetKey String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // relação N:N
   items SongListItem[]
 
-  // ✅ unique já cria índice (não duplicar com @@index)
   @@unique([name])
 }
 
