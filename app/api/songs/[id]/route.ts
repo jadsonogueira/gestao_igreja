@@ -73,30 +73,55 @@ export async function PATCH(request: Request, { params }: Params) {
       );
     }
 
-    // ✅ só vamos permitir atualizar content (e opcionalmente tags no futuro)
-    const content = body.content;
+    const dataToUpdate: any = {};
 
-    // validação mínima
-    if (!content || typeof content !== "object") {
-      return NextResponse.json(
-        { success: false, error: "Campo 'content' é obrigatório" },
-        { status: 400 }
-      );
+    // ✅ content (opcional)
+    if (body.content) {
+      const content = body.content;
+
+      if (!content || typeof content !== "object") {
+        return NextResponse.json(
+          { success: false, error: "Campo 'content' inválido" },
+          { status: 400 }
+        );
+      }
+
+      const parts = (content as any)?.parts;
+      if (!Array.isArray(parts)) {
+        return NextResponse.json(
+          { success: false, error: "content.parts precisa ser um array" },
+          { status: 400 }
+        );
+      }
+
+      dataToUpdate.content = content;
     }
 
-    const parts = (content as any)?.parts;
-    if (!Array.isArray(parts)) {
+    // ✅ originalKey (opcional)
+    if (typeof (body as any).originalKey === "string") {
+      const originalKey = (body as any).originalKey.trim().toUpperCase();
+
+      const allowed = new Set(["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]);
+      if (!allowed.has(originalKey)) {
+        return NextResponse.json(
+          { success: false, error: "Tom original inválido" },
+          { status: 400 }
+        );
+      }
+
+      dataToUpdate.originalKey = originalKey;
+    }
+
+    if (Object.keys(dataToUpdate).length === 0) {
       return NextResponse.json(
-        { success: false, error: "content.parts precisa ser um array" },
+        { success: false, error: "Nada para atualizar" },
         { status: 400 }
       );
     }
 
     const updated = await prisma.song.update({
       where: { id },
-      data: {
-        content,
-      },
+      data: dataToUpdate,
       select: {
         id: true,
         title: true,
