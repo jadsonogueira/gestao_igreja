@@ -49,13 +49,10 @@ function buildExportMarkdown(listName: string, items: ListItem[]) {
 }
 
 async function copyToClipboard(text: string) {
-  // iOS Safari: isso funciona bem quando acionado por clique
   if (navigator?.clipboard?.writeText) {
     await navigator.clipboard.writeText(text);
     return;
   }
-
-  // fallback
   const ta = document.createElement("textarea");
   ta.value = text;
   ta.setAttribute("readonly", "");
@@ -79,6 +76,10 @@ export default function SongListDetailPage({
   // export modal
   const [exportOpen, setExportOpen] = useState(false);
   const [exportMode, setExportMode] = useState<"text" | "md">("text");
+
+  // duplicate modal
+  const [dupOpen, setDupOpen] = useState(false);
+  const [dupName, setDupName] = useState("");
 
   async function load() {
     setLoading(true);
@@ -130,6 +131,33 @@ export default function SongListDetailPage({
     }
   }
 
+  async function duplicateList() {
+    const t = toast.loading("Duplicando lista...");
+    try {
+      const res = await fetch(`/api/song-lists/${params.id}/duplicate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: dupName.trim() || undefined }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || "Erro ao duplicar");
+      }
+
+      const newId = json?.data?.id;
+      toast.success("Lista duplicada!", { id: t });
+
+      setDupOpen(false);
+      setDupName("");
+
+      if (newId) {
+        window.location.href = `/song-lists/${newId}`;
+      }
+    } catch (e: any) {
+      toast.error(e?.message || "Erro", { id: t });
+    }
+  }
+
   useEffect(() => {
     load().catch((e) => {
       toast.error(e?.message || "Erro ao carregar");
@@ -151,7 +179,7 @@ export default function SongListDetailPage({
     try {
       await copyToClipboard(exportText);
       toast.success("Copiado!");
-    } catch (e) {
+    } catch {
       toast.error("Não foi possível copiar");
     }
   }
@@ -173,6 +201,17 @@ export default function SongListDetailPage({
           <a className="border rounded px-3 py-2 text-sm" href="/songs">
             Ver cifras
           </a>
+
+          <button
+            className="border rounded px-3 py-2 text-sm"
+            onClick={() => {
+              setDupName("");
+              setDupOpen(true);
+            }}
+            title="Duplicar esta lista (mantém a ordem)"
+          >
+            Duplicar lista
+          </button>
 
           <button
             className="border rounded px-3 py-2 text-sm"
@@ -318,6 +357,54 @@ export default function SongListDetailPage({
                 onClick={() => setExportOpen(false)}
               >
                 Ok
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ✅ modal duplicar */}
+      {dupOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div className="w-full max-w-xl rounded-xl border bg-white p-4 shadow-lg dark:bg-black">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">Duplicar lista</div>
+                <div className="text-xs opacity-70">
+                  Se deixar em branco, cria “(cópia)”.
+                </div>
+              </div>
+
+              <button
+                className="text-sm underline opacity-70"
+                onClick={() => setDupOpen(false)}
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              <label className="text-xs opacity-70">Novo nome (opcional)</label>
+              <input
+                className="w-full rounded border px-3 py-2 text-sm"
+                value={dupName}
+                onChange={(e) => setDupName(e.target.value)}
+                placeholder={`${data?.name ?? "Lista"} (cópia)`}
+              />
+            </div>
+
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                className="border rounded px-3 py-2 text-sm"
+                onClick={duplicateList}
+              >
+                Duplicar
+              </button>
+              <button
+                className="border rounded px-3 py-2 text-sm"
+                onClick={() => setDupOpen(false)}
+              >
+                Cancelar
               </button>
             </div>
           </div>
