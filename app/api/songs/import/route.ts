@@ -23,7 +23,36 @@ function normalizeTags(input: unknown): string[] {
 
 export async function POST(request: Request) {
   try {
-    const body = (await request.json()) as ImportSongBody;
+    const contentType = request.headers.get("content-type") ?? "";
+    const contentLength = request.headers.get("content-length") ?? "unknown";
+
+    // Se não for JSON, já responde 400
+    if (!contentType.includes("application/json")) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Content-Type inválido. Use Content-Type: application/json",
+          debug: { contentType, contentLength },
+        },
+        { status: 400 }
+      );
+    }
+
+    let body: ImportSongBody;
+    try {
+      body = (await request.json()) as ImportSongBody;
+    } catch (e) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Body JSON inválido ou vazio. Verifique se o app está enviando o body corretamente.",
+          debug: { contentType, contentLength },
+        },
+        { status: 400 }
+      );
+    }
 
     const title = String(body.title ?? "").trim();
     const artist = body.artist ? String(body.artist).trim() : null;
