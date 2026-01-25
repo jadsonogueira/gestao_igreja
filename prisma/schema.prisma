@@ -7,6 +7,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+//////////////////////////////////////////////////////
+// MEMBER
+//////////////////////////////////////////////////////
+
 model Member {
   id                 String   @id @default(auto()) @map("_id") @db.ObjectId
   nome               String
@@ -27,9 +31,13 @@ model Member {
 
   emailLogs EmailLog[]
 
-  // ✅ inverso da relação com Escala
+  // inverso da relação com Escala
   escalas Escala[] @relation("MemberEscalas")
 }
+
+//////////////////////////////////////////////////////
+// MESSAGE GROUP
+//////////////////////////////////////////////////////
 
 model MessageGroup {
   id              String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -48,6 +56,10 @@ model MessageGroup {
   updatedAt       DateTime @updatedAt
 }
 
+//////////////////////////////////////////////////////
+// EMAIL LOG
+//////////////////////////////////////////////////////
+
 model EmailLog {
   id              String   @id @default(auto()) @map("_id") @db.ObjectId
   grupo           String
@@ -65,6 +77,10 @@ model EmailLog {
   member Member @relation(fields: [membroId], references: [id], onDelete: Cascade)
 }
 
+//////////////////////////////////////////////////////
+// SYSTEM CONFIG
+//////////////////////////////////////////////////////
+
 model SystemConfig {
   id                String   @id @default(auto()) @map("_id") @db.ObjectId
   automacaoAtiva    Boolean  @default(true)
@@ -72,6 +88,10 @@ model SystemConfig {
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 }
+
+//////////////////////////////////////////////////////
+// GOOGLE INTEGRATION
+//////////////////////////////////////////////////////
 
 model GoogleIntegration {
   id           String   @id @default(auto()) @map("_id") @db.ObjectId
@@ -86,6 +106,10 @@ model GoogleIntegration {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 }
+
+//////////////////////////////////////////////////////
+// ESCALA
+//////////////////////////////////////////////////////
 
 enum EscalaTipo {
   DIRIGENTE
@@ -103,6 +127,11 @@ enum EscalaStatus {
   ERRO
 }
 
+enum EscalaSource {
+  GOOGLE
+  MANUAL
+}
+
 model Escala {
   id String @id @default(auto()) @map("_id") @db.ObjectId
 
@@ -114,11 +143,10 @@ model Escala {
   nomeResponsavelRaw String?
   mensagem           String?
 
-  // LEGADO (existem documentos antigos no Mongo)
+  // LEGADO
   nomeResponsavel String?
   horario         String?
 
-  // ✅ VÍNCULO COM GOOGLE (necessário para “editar no app → refletir no Google”)
   googleEventId    String?
   googleCalendarId String?
   source           EscalaSource @default(GOOGLE)
@@ -139,8 +167,34 @@ model Escala {
   @@unique([tipo, dataEvento], name: "tipo_dataEvento")
 }
 
-enum EscalaSource {
-  GOOGLE
-  MANUAL
-}
+//////////////////////////////////////////////////////
+// ✅ BANCO DE CIFRAS — SONG
+//////////////////////////////////////////////////////
 
+model Song {
+  id String @id @default(auto()) @map("_id") @db.ObjectId
+
+  // Informações básicas
+  title       String
+  artist      String?
+  originalKey String
+
+  // Texto colado pelo usuário (importação)
+  rawText String
+
+  // Estrutura inteligente da cifra
+  // partes -> linhas -> letra + acordes (posicionados)
+  content Json
+
+  // Acordes usados (normalizados) para busca
+  chordsUsed String[]
+
+  // Texto achatado (título + letra) para pesquisa
+  searchIndex String
+
+  // Tags livres (louvor, ceia, natal, congregacional...)
+  tags String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
