@@ -13,7 +13,7 @@ type SongMini = {
 };
 
 type ListItem = {
-  id: string;
+  id: string; // SongListItem.id
   order: number;
   song: SongMini;
 };
@@ -24,6 +24,49 @@ type SongListDetail = {
   items: ListItem[];
 };
 
+function buildExportText(listName: string, items: ListItem[]) {
+  const lines: string[] = [];
+  lines.push(`Lista: ${listName}`);
+  lines.push("");
+  items.forEach((it, i) => {
+    const s = it.song;
+    const artist = s.artist ? ` - ${s.artist}` : "";
+    lines.push(`${i + 1}. ${s.title}${artist} (Tom: ${s.originalKey})`);
+  });
+  return lines.join("\n");
+}
+
+function buildExportMarkdown(listName: string, items: ListItem[]) {
+  const lines: string[] = [];
+  lines.push(`*${listName}*`);
+  lines.push("");
+  items.forEach((it, i) => {
+    const s = it.song;
+    const artist = s.artist ? ` — _${s.artist}_` : "";
+    lines.push(`*${i + 1}.* *${s.title}*${artist}  _(Tom: ${s.originalKey})_`);
+  });
+  return lines.join("\n");
+}
+
+async function copyToClipboard(text: string) {
+  // iOS Safari: isso funciona bem quando acionado por clique
+  if (navigator?.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  // fallback
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.setAttribute("readonly", "");
+  ta.style.position = "absolute";
+  ta.style.left = "-9999px";
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand("copy");
+  document.body.removeChild(ta);
+}
+
 export default function SongListDetailPage({
   params,
 }: {
@@ -33,9 +76,15 @@ export default function SongListDetailPage({
   const [loading, setLoading] = useState(true);
   const [movingId, setMovingId] = useState<string | null>(null);
 
+  // export modal
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportMode, setExportMode] = useState<"text" | "md">("text");
+
   async function load() {
     setLoading(true);
-    const res = await fetch(`/api/song-lists/${params.id}`, { cache: "no-store" });
+    const res = await fetch(`/api/song-lists/${params.id}`, {
+      cache: "no-store",
+    });
     const json = await res.json();
     if (!res.ok || !json?.success) throw new Error(json?.error || "Erro");
     setData(json.data);
@@ -91,6 +140,22 @@ export default function SongListDetailPage({
 
   const items = useMemo(() => data?.items ?? [], [data]);
 
+  const exportText = useMemo(() => {
+    const name = data?.name ?? "Lista";
+    return exportMode === "md"
+      ? buildExportMarkdown(name, items)
+      : buildExportText(name, items);
+  }, [data?.name, items, exportMode]);
+
+  async function onCopy() {
+    try {
+      await copyToClipboard(exportText);
+      toast.success("Copiado!");
+    } catch (e) {
+      toast.error("Não foi possível copiar");
+    }
+  }
+
   return (
     <main className="mx-auto max-w-2xl p-4 space-y-4">
       <div className="flex items-start justify-between gap-3">
@@ -104,18 +169,45 @@ export default function SongListDetailPage({
           <div className="text-xs opacity-60">ID: {params.id}</div>
         </div>
 
-        <a className="border rounded px-3 py-2 text-sm" href="/songs">
-          Ver cifras
-        </a>
+        <div className="flex flex-col gap-2 items-end">
+          <a className="border rounded px-3 py-2 text-sm" href="/songs">
+            Ver cifras
+          </a>
+
+          <button
+            className="border rounded px-3 py-2 text-sm"
+            onClick={() => {
+              setExportMode("text");
+              setExportOpen(true);
+            }}
+            title="Exportar em texto"
+          >
+            Exportar (Texto)
+          </button>
+
+          <button
+            className="border rounded px-3 py-2 text-sm"
+            onClick={() => {
+              setExportMode("md");
+              setExportOpen(true);
+            }}
+            title="Exportar em formato mais bonito"
+          >
+            Exportar (Markdown)
+          </button>
+        </div>
       </div>
 
       {loading ? (
-        <div className="border rounded p-4 text-sm opacity-70">Carregando...</div>
+        <div className="border rounded p-4 text-sm opacity-70">
+          Carregando...
+        </div>
       ) : null}
 
       {!loading && !items.length ? (
         <div className="border rounded p-4 text-sm opacity-70">
-          Essa lista ainda está vazia. Vá em <strong>/songs</strong> e adicione cifras nela.
+          Essa lista ainda está vazia. Vá em <strong>/songs</strong> e adicione
+          cifras nela.
         </div>
       ) : null}
 
@@ -184,6 +276,53 @@ export default function SongListDetailPage({
           );
         })}
       </div>
+
+      {/* ✅ modal export */}
+      {exportOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div className="w-full max-w-xl rounded-xl border bg-white p-4 shadow-lg dark:bg-black">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">
+                  Exportar ({exportMode === "md" ? "Markdown" : "Texto"})
+                </div>
+                <div className="text-xs opacity-70">
+                  Copie e cole no WhatsApp / notas.
+                </div>
+              </div>
+
+              <button
+                className="text-sm underline opacity-70"
+                onClick={() => setExportOpen(false)}
+              >
+                Fechar
+              </button>
+            </div>
+
+            <textarea
+              className="mt-3 w-full rounded border p-3 font-mono text-sm"
+              rows={10}
+              value={exportText}
+              readOnly
+            />
+
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                className="border rounded px-3 py-2 text-sm"
+                onClick={onCopy}
+              >
+                Copiar
+              </button>
+              <button
+                className="border rounded px-3 py-2 text-sm"
+                onClick={() => setExportOpen(false)}
+              >
+                Ok
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
