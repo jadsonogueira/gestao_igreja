@@ -165,6 +165,10 @@ model Escala {
   member Member? @relation("MemberEscalas", fields: [membroId], references: [id], onDelete: SetNull)
 
   @@unique([tipo, dataEvento], name: "tipo_dataEvento")
+
+  // ✅ NOVO: índices para o import achar rápido pelo evento do Google
+  @@index([googleCalendarId, googleEventId], name: "google_event")
+  @@index([googleEventId], name: "googleEventId_idx")
 }
 
 //////////////////////////////////////////////////////
