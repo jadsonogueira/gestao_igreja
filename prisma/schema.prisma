@@ -187,14 +187,18 @@ model Song {
   content Json
 
   // Acordes usados (normalizados) para busca
-  chordsUsed String[]
+  chordsUsed String[] @default([])
 
   // Texto achatado (título + letra) para pesquisa
-  searchIndex String
+  searchIndex String @default("")
 
   // Tags livres (louvor, ceia, natal, congregacional...)
-  tags String[]
+  tags String[] @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([title])
+  @@index([searchIndex])
+  @@index([originalKey])
 }
