@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 
 import type { SongDetail } from "./page";
 import ChordPicker from "./ChordPicker";
+import AddToListButton from "../AddToListButton";
 import {
   transposeChord,
   transposeChordTokens,
@@ -54,16 +55,12 @@ function deepCloneParts(parts: SongPart[]): SongPart[] {
 
 export default function SongViewer({ song }: { song: SongDetail }) {
   const [transpose, setTranspose] = useState(0);
-
-  // preferência padrão: sustenidos
   const accidentalPref: AccidentalPref = "sharp";
 
-  // base editável (sem transposição aplicada)
   const [partsBase, setPartsBase] = useState<SongPart[]>(
     () => deepCloneParts(song.content?.parts ?? [])
   );
 
-  // ✅ snapshot do que está "salvo" (para dirty flag real)
   const [savedSnapshot, setSavedSnapshot] = useState<string>(() =>
     JSON.stringify(song.content?.parts ?? [])
   );
@@ -78,13 +75,12 @@ export default function SongViewer({ song }: { song: SongDetail }) {
     }
   }, [partsBase, savedSnapshot]);
 
-  // chord picker state
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selected, setSelected] = useState<{
     partIdx: number;
     lineIdx: number;
     chordIdx: number;
-    displayChord: string; // acorde já transposto (o que o usuário vê)
+    displayChord: string;
   } | null>(null);
 
   const parts = useMemo(() => partsBase ?? [], [partsBase]);
@@ -102,7 +98,6 @@ export default function SongViewer({ song }: { song: SongDetail }) {
   function applyPickedChord(newChordShown: string) {
     if (!selected) return;
 
-    // ✅ converte o acorde escolhido (na view transposta) de volta para a base
     const newChordBase =
       transpose !== 0
         ? transposeChord(newChordShown, -transpose, accidentalPref)
@@ -114,9 +109,7 @@ export default function SongViewer({ song }: { song: SongDetail }) {
         next[selected.partIdx]?.lines?.[selected.lineIdx]?.chords?.[
           selected.chordIdx
         ];
-      if (target) {
-        target.chord = newChordBase;
-      }
+      if (target) target.chord = newChordBase;
       return next;
     });
 
@@ -150,9 +143,7 @@ export default function SongViewer({ song }: { song: SongDetail }) {
         throw new Error(json?.error || "Falha ao salvar");
       }
 
-      // ✅ marca como salvo (zera dirty flag)
       setSavedSnapshot(JSON.stringify(partsBase));
-
       toast.success("Salvo com sucesso!", { id: t });
     } catch (e: any) {
       console.error(e);
@@ -218,6 +209,9 @@ export default function SongViewer({ song }: { song: SongDetail }) {
             >
               +1
             </button>
+
+            {/* ✅ adicionar à lista dentro do viewer */}
+            <AddToListButton songId={song.id} />
 
             <button
               className="rounded-lg border px-3 py-2 text-sm font-semibold"
