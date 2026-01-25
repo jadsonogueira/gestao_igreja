@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { SongDetail } from "./page";
+import { transposeChordTokens, type AccidentalPref } from "@/lib/chords";
 
 type SongChordToken = { chord: string; pos: number };
 type SongLine = { lyric: string; chords: SongChordToken[] };
@@ -10,7 +11,6 @@ type SongPart = { type: string; title?: string | null; lines: SongLine[] };
 function buildChordOverlay(lyric: string, chords: SongChordToken[]) {
   if (!chords?.length) return "";
 
-  // tamanho mínimo: letra ou o último acorde até o fim
   const maxNeeded = Math.max(
     lyric.length,
     ...chords.map((c) => (c.pos ?? 0) + (c.chord?.length ?? 0))
@@ -36,14 +36,15 @@ function partLabel(p: SongPart) {
 }
 
 export default function SongViewer({ song }: { song: SongDetail }) {
-  // já deixa preparado para transposição no futuro
   const [transpose, setTranspose] = useState(0);
+
+  // preferência padrão: sustenidos (como combinamos)
+  const accidentalPref: AccidentalPref = "sharp";
 
   const parts = useMemo(() => song.content?.parts ?? [], [song.content]);
 
   return (
     <main className="mx-auto max-w-3xl p-4">
-      {/* Header */}
       <div className="mb-4 rounded-xl border p-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -76,12 +77,11 @@ export default function SongViewer({ song }: { song: SongDetail }) {
             ) : null}
           </div>
 
-          {/* Controles (placeholder) */}
           <div className="flex gap-2">
             <button
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={() => setTranspose((v) => v - 1)}
-              title="Transpor -1 (em breve vai aplicar nos acordes)"
+              title="Transpor -1"
             >
               -1
             </button>
@@ -95,7 +95,7 @@ export default function SongViewer({ song }: { song: SongDetail }) {
             <button
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={() => setTranspose((v) => v + 1)}
-              title="Transpor +1 (em breve vai aplicar nos acordes)"
+              title="Transpor +1"
             >
               +1
             </button>
@@ -103,7 +103,6 @@ export default function SongViewer({ song }: { song: SongDetail }) {
         </div>
       </div>
 
-      {/* Body */}
       <div className="space-y-6">
         {parts.map((part, idx) => (
           <section key={`${part.type}-${idx}`} className="space-y-3">
@@ -116,31 +115,34 @@ export default function SongViewer({ song }: { song: SongDetail }) {
 
             <div className="space-y-4">
               {part.lines.map((line, i) => {
-                const chordOverlay = buildChordOverlay(line.lyric ?? "", line.chords ?? []);
+                const transposedTokens = transposeChordTokens(
+                  line.chords ?? [],
+                  transpose,
+                  accidentalPref
+                );
+
+                const chordOverlay = buildChordOverlay(line.lyric ?? "", transposedTokens);
 
                 return (
                   <div key={i} className="rounded-lg border p-3">
-                    {/* Linha de acordes (overlay monoespaçado) */}
                     {chordOverlay ? (
                       <div className="mb-1 whitespace-pre font-mono text-sm leading-6 opacity-90">
                         {chordOverlay}
                       </div>
                     ) : null}
 
-                    {/* Letra */}
                     <div className="whitespace-pre font-mono text-sm leading-6">
                       {line.lyric ?? ""}
                     </div>
 
-                    {/* Chips clicáveis (já prepara o picker) */}
-                    {line.chords?.length ? (
+                    {transposedTokens.length ? (
                       <div className="mt-2 flex flex-wrap gap-2">
-                        {line.chords.map((c, k) => (
+                        {transposedTokens.map((c, k) => (
                           <button
                             key={`${c.chord}-${c.pos}-${k}`}
                             className="rounded-md border px-2 py-1 text-xs"
                             onClick={() => {
-                              // Aqui vamos abrir o ChordPicker depois
+                              // daqui em diante entra o ChordPicker
                               console.log("Chord clicked:", c.chord, "pos:", c.pos);
                               alert(`Clique no acorde: ${c.chord}`);
                             }}
