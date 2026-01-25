@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import toast from "react-hot-toast";
+
 import type { SongDetail } from "./page";
 import ChordPicker from "./ChordPicker";
 import {
@@ -61,6 +63,21 @@ export default function SongViewer({ song }: { song: SongDetail }) {
     () => deepCloneParts(song.content?.parts ?? [])
   );
 
+  // ✅ snapshot do que está "salvo" (para dirty flag real)
+  const [savedSnapshot, setSavedSnapshot] = useState<string>(() =>
+    JSON.stringify(song.content?.parts ?? [])
+  );
+
+  const [saving, setSaving] = useState(false);
+
+  const isDirty = useMemo(() => {
+    try {
+      return JSON.stringify(partsBase) !== savedSnapshot;
+    } catch {
+      return true;
+    }
+  }, [partsBase, savedSnapshot]);
+
   // chord picker state
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selected, setSelected] = useState<{
@@ -72,7 +89,12 @@ export default function SongViewer({ song }: { song: SongDetail }) {
 
   const parts = useMemo(() => partsBase ?? [], [partsBase]);
 
-  function openPicker(partIdx: number, lineIdx: number, chordIdx: number, chordShown: string) {
+  function openPicker(
+    partIdx: number,
+    lineIdx: number,
+    chordIdx: number,
+    chordShown: string
+  ) {
     setSelected({ partIdx, lineIdx, chordIdx, displayChord: chordShown });
     setPickerOpen(true);
   }
@@ -88,7 +110,10 @@ export default function SongViewer({ song }: { song: SongDetail }) {
 
     setPartsBase((prev) => {
       const next = deepCloneParts(prev);
-      const target = next[selected.partIdx]?.lines?.[selected.lineIdx]?.chords?.[selected.chordIdx];
+      const target =
+        next[selected.partIdx]?.lines?.[selected.lineIdx]?.chords?.[
+          selected.chordIdx
+        ];
       if (target) {
         target.chord = newChordBase;
       }
@@ -99,10 +124,48 @@ export default function SongViewer({ song }: { song: SongDetail }) {
     setSelected(null);
   }
 
+  async function saveToDatabase() {
+    if (saving) return;
+
+    if (!isDirty) {
+      toast("Nenhuma alteração para salvar.");
+      return;
+    }
+
+    setSaving(true);
+    const t = toast.loading("Salvando...");
+
+    try {
+      const res = await fetch(`/api/songs/${song.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: { parts: partsBase },
+        }),
+      });
+
+      const json = await res.json();
+
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || "Falha ao salvar");
+      }
+
+      // ✅ marca como salvo (zera dirty flag)
+      setSavedSnapshot(JSON.stringify(partsBase));
+
+      toast.success("Salvo com sucesso!", { id: t });
+    } catch (e: any) {
+      console.error(e);
+      toast.error(e?.message || "Erro ao salvar", { id: t });
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <main className="mx-auto max-w-3xl p-4">
       <div className="mb-4 rounded-xl border p-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 className="text-2xl font-semibold">{song.title}</h1>
             <div className="text-sm opacity-80">
@@ -133,7 +196,7 @@ export default function SongViewer({ song }: { song: SongDetail }) {
             ) : null}
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={() => setTranspose((v) => v - 1)}
@@ -155,7 +218,26 @@ export default function SongViewer({ song }: { song: SongDetail }) {
             >
               +1
             </button>
+
+            <button
+              className="rounded-lg border px-3 py-2 text-sm font-semibold"
+              onClick={saveToDatabase}
+              disabled={!isDirty || saving}
+              title={!isDirty ? "Nada para salvar" : "Salvar alterações"}
+            >
+              {saving ? "Salvando..." : "Salvar"}
+            </button>
           </div>
+        </div>
+
+        <div className="mt-2 text-xs opacity-70">
+          {isDirty ? (
+            <>
+              Alterações pendentes — clique em <strong>Salvar</strong>.
+            </>
+          ) : (
+            <>Tudo salvo.</>
+          )}
         </div>
       </div>
 
@@ -177,7 +259,10 @@ export default function SongViewer({ song }: { song: SongDetail }) {
                   accidentalPref
                 );
 
-                const chordOverlay = buildChordOverlay(line.lyric ?? "", transposedTokens);
+                const chordOverlay = buildChordOverlay(
+                  line.lyric ?? "",
+                  transposedTokens
+                );
 
                 return (
                   <div key={lineIdx} className="rounded-lg border p-3">
