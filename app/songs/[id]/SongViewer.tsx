@@ -2,7 +2,12 @@
 
 import { useMemo, useState } from "react";
 import type { SongDetail } from "./page";
-import { transposeChordTokens, type AccidentalPref } from "@/lib/chords";
+import ChordPicker from "./ChordPicker";
+import {
+  transposeChord,
+  transposeChordTokens,
+  type AccidentalPref,
+} from "@/lib/chords";
 
 type SongChordToken = { chord: string; pos: number };
 type SongLine = { lyric: string; chords: SongChordToken[] };
@@ -35,13 +40,64 @@ function partLabel(p: SongPart) {
   return p.type;
 }
 
+function deepCloneParts(parts: SongPart[]): SongPart[] {
+  return parts.map((p) => ({
+    ...p,
+    lines: p.lines.map((l) => ({
+      ...l,
+      chords: (l.chords ?? []).map((c) => ({ ...c })),
+    })),
+  }));
+}
+
 export default function SongViewer({ song }: { song: SongDetail }) {
   const [transpose, setTranspose] = useState(0);
 
-  // preferência padrão: sustenidos (como combinamos)
+  // preferência padrão: sustenidos
   const accidentalPref: AccidentalPref = "sharp";
 
-  const parts = useMemo(() => song.content?.parts ?? [], [song.content]);
+  // base editável (sem transposição aplicada)
+  const [partsBase, setPartsBase] = useState<SongPart[]>(
+    () => deepCloneParts(song.content?.parts ?? [])
+  );
+
+  // chord picker state
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [selected, setSelected] = useState<{
+    partIdx: number;
+    lineIdx: number;
+    chordIdx: number;
+    displayChord: string; // acorde já transposto (o que o usuário vê)
+  } | null>(null);
+
+  const parts = useMemo(() => partsBase ?? [], [partsBase]);
+
+  function openPicker(partIdx: number, lineIdx: number, chordIdx: number, chordShown: string) {
+    setSelected({ partIdx, lineIdx, chordIdx, displayChord: chordShown });
+    setPickerOpen(true);
+  }
+
+  function applyPickedChord(newChordShown: string) {
+    if (!selected) return;
+
+    // ✅ converte o acorde escolhido (na view transposta) de volta para a base
+    const newChordBase =
+      transpose !== 0
+        ? transposeChord(newChordShown, -transpose, accidentalPref)
+        : newChordShown;
+
+    setPartsBase((prev) => {
+      const next = deepCloneParts(prev);
+      const target = next[selected.partIdx]?.lines?.[selected.lineIdx]?.chords?.[selected.chordIdx];
+      if (target) {
+        target.chord = newChordBase;
+      }
+      return next;
+    });
+
+    setPickerOpen(false);
+    setSelected(null);
+  }
 
   return (
     <main className="mx-auto max-w-3xl p-4">
@@ -104,8 +160,8 @@ export default function SongViewer({ song }: { song: SongDetail }) {
       </div>
 
       <div className="space-y-6">
-        {parts.map((part, idx) => (
-          <section key={`${part.type}-${idx}`} className="space-y-3">
+        {parts.map((part, partIdx) => (
+          <section key={`${part.type}-${partIdx}`} className="space-y-3">
             <div className="flex items-center gap-2">
               <div className="text-xs font-semibold uppercase tracking-wide opacity-70">
                 {partLabel(part)}
@@ -114,7 +170,7 @@ export default function SongViewer({ song }: { song: SongDetail }) {
             </div>
 
             <div className="space-y-4">
-              {part.lines.map((line, i) => {
+              {part.lines.map((line, lineIdx) => {
                 const transposedTokens = transposeChordTokens(
                   line.chords ?? [],
                   transpose,
@@ -124,7 +180,7 @@ export default function SongViewer({ song }: { song: SongDetail }) {
                 const chordOverlay = buildChordOverlay(line.lyric ?? "", transposedTokens);
 
                 return (
-                  <div key={i} className="rounded-lg border p-3">
+                  <div key={lineIdx} className="rounded-lg border p-3">
                     {chordOverlay ? (
                       <div className="mb-1 whitespace-pre font-mono text-sm leading-6 opacity-90">
                         {chordOverlay}
@@ -137,15 +193,14 @@ export default function SongViewer({ song }: { song: SongDetail }) {
 
                     {transposedTokens.length ? (
                       <div className="mt-2 flex flex-wrap gap-2">
-                        {transposedTokens.map((c, k) => (
+                        {transposedTokens.map((c, chordIdx) => (
                           <button
-                            key={`${c.chord}-${c.pos}-${k}`}
-                            className="rounded-md border px-2 py-1 text-xs"
-                            onClick={() => {
-                              // daqui em diante entra o ChordPicker
-                              console.log("Chord clicked:", c.chord, "pos:", c.pos);
-                              alert(`Clique no acorde: ${c.chord}`);
-                            }}
+                            key={`${c.chord}-${c.pos}-${chordIdx}`}
+                            className="rounded-md border px-2 py-1 text-xs font-mono"
+                            onClick={() =>
+                              openPicker(partIdx, lineIdx, chordIdx, c.chord)
+                            }
+                            title="Clique para trocar o acorde"
                           >
                             {c.chord}
                           </button>
@@ -163,6 +218,16 @@ export default function SongViewer({ song }: { song: SongDetail }) {
       <div className="mt-8 text-xs opacity-60">
         ID: <span className="font-mono">{song.id}</span>
       </div>
+
+      <ChordPicker
+        open={pickerOpen}
+        chord={selected?.displayChord ?? "C"}
+        onClose={() => {
+          setPickerOpen(false);
+          setSelected(null);
+        }}
+        onPick={applyPickedChord}
+      />
     </main>
   );
 }
