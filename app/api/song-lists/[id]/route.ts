@@ -52,19 +52,36 @@ export async function PATCH(req: Request, { params }: Params) {
   try {
     const id = params.id;
     const body = await req.json().catch(() => null);
-    const name = String(body?.name ?? "").trim().replace(/\s+/g, " ");
 
-    if (!name) {
-      return NextResponse.json(
-        { success: false, error: "Nome é obrigatório" },
-        { status: 400 }
-      );
+    const nameRaw = body?.name;
+    const targetKeyRaw = body?.targetKey; // string | null | undefined
+
+    const dataToUpdate: any = {};
+
+    if (nameRaw !== undefined) {
+      const name = String(nameRaw ?? "")
+        .trim()
+        .replace(/\s+/g, " ");
+      if (!name) {
+        return NextResponse.json(
+          { success: false, error: "Nome é obrigatório" },
+          { status: 400 }
+        );
+      }
+      dataToUpdate.name = name;
+    }
+
+    if (targetKeyRaw !== undefined) {
+      // permite null para "desativar"
+      const v =
+        targetKeyRaw === null ? null : String(targetKeyRaw ?? "").trim();
+      dataToUpdate.targetKey = v ? v : null;
     }
 
     const updated = await prisma.songList.update({
       where: { id },
-      data: { name },
-      select: { id: true, name: true, updatedAt: true },
+      data: dataToUpdate,
+      select: { id: true, name: true, targetKey: true, updatedAt: true },
     });
 
     return NextResponse.json({ success: true, data: updated });
@@ -78,7 +95,7 @@ export async function PATCH(req: Request, { params }: Params) {
 
     console.error("PATCH /api/song-lists/[id] error:", error);
     return NextResponse.json(
-      { success: false, error: "Erro ao renomear lista" },
+      { success: false, error: "Erro ao atualizar lista" },
       { status: 500 }
     );
   }
@@ -88,9 +105,7 @@ export async function DELETE(_req: Request, { params }: Params) {
   try {
     const id = params.id;
 
-    await prisma.songList.delete({
-      where: { id },
-    });
+    await prisma.songList.delete({ where: { id } });
 
     return NextResponse.json({ success: true });
   } catch (error) {
