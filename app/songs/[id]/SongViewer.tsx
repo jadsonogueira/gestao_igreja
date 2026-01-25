@@ -12,6 +12,8 @@ type SongChordToken = { chord: string; pos: number };
 type SongLine = { lyric: string; chords: SongChordToken[] };
 type SongPart = { type: string; title?: string | null; lines: SongLine[] };
 
+const KEY_OPTIONS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"] as const;
+
 function buildChordOverlay(lyric: string, chords: SongChordToken[]) {
   if (!chords?.length) return "";
 
@@ -55,17 +57,26 @@ export default function SongViewer({ song }: { song: SongDetail }) {
   const [transpose, setTranspose] = useState(0);
   const accidentalPref: AccidentalPref = "sharp";
 
-  // ✅ base editável (sem transposição aplicada)
+  // ✅ base editável da cifra
   const [partsBase, setPartsBase] = useState<SongPart[]>(
     () => deepCloneParts(song.content?.parts ?? [])
   );
 
-  // ✅ snapshot que VAI ser atualizado após salvar
+  // ✅ tom original editável
+  const [originalKey, setOriginalKey] = useState<string>(song.originalKey);
+
+  // ✅ snapshot atualizado após salvar
   const [snapshot, setSnapshot] = useState<string>(() =>
-    JSON.stringify(song.content?.parts ?? [])
+    JSON.stringify({
+      parts: song.content?.parts ?? [],
+      originalKey: song.originalKey,
+    })
   );
 
-  const dirty = useMemo(() => JSON.stringify(partsBase) !== snapshot, [partsBase, snapshot]);
+  const dirty = useMemo(() => {
+    const now = JSON.stringify({ parts: partsBase, originalKey });
+    return now !== snapshot;
+  }, [partsBase, originalKey, snapshot]);
 
   // chord picker state
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -86,7 +97,6 @@ export default function SongViewer({ song }: { song: SongDetail }) {
   function applyPickedChord(newChordShown: string) {
     if (!selected) return;
 
-    // ✅ converte o acorde escolhido (na view transposta) de volta para a base
     const newChordBase =
       transpose !== 0 ? transposeChord(newChordShown, -transpose, accidentalPref) : newChordShown;
 
@@ -105,23 +115,23 @@ export default function SongViewer({ song }: { song: SongDetail }) {
     const t = toast.loading("Salvando...");
 
     try {
-      // ✅ NÃO mexe em originalKey automaticamente
       const res = await fetch(`/api/songs/${song.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           content: { parts: partsBase },
+          originalKey, // ✅ agora salva no banco
         }),
       });
 
       const json = await res.json();
+      if (!res.ok || !json?.success) throw new Error(json?.error || "Erro ao salvar");
 
-      if (!res.ok || !json?.success) {
-        throw new Error(json?.error || "Erro ao salvar");
-      }
+      // ✅ confirma o que veio do backend
+      setOriginalKey(json.data.originalKey ?? originalKey);
 
-      // ✅ atualiza snapshot -> botão desabilita e texto vira “Tudo salvo.”
-      setSnapshot(JSON.stringify(partsBase));
+      // ✅ atualiza snapshot
+      setSnapshot(JSON.stringify({ parts: partsBase, originalKey: json.data.originalKey ?? originalKey }));
 
       toast.success("Tudo salvo.", { id: t });
       router.refresh();
@@ -131,7 +141,6 @@ export default function SongViewer({ song }: { song: SongDetail }) {
   }
 
   function handleBack() {
-    // router.back() pode falhar quando abriu direto o link (sem histórico)
     if (typeof window !== "undefined" && window.history.length > 1) {
       router.back();
       return;
@@ -150,29 +159,33 @@ export default function SongViewer({ song }: { song: SongDetail }) {
 
             <h1 className="text-2xl font-semibold mt-2">{song.title}</h1>
 
-            <div className="text-sm opacity-80">
-              {song.artist ? `${song.artist} • ` : ""}
-              Tom original: <strong>{song.originalKey}</strong>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-sm opacity-90">
+              {song.artist ? <span>{song.artist}</span> : null}
+
+              <span className="opacity-60">Tom original:</span>
+
+              <select
+                className="border rounded px-2 py-1 text-sm"
+                value={originalKey}
+                onChange={(e) => setOriginalKey(e.target.value)}
+                title="Editar tom original"
+              >
+                {KEY_OPTIONS.map((k) => (
+                  <option key={k} value={k}>
+                    {k}
+                  </option>
+                ))}
+              </select>
+
               {transpose !== 0 ? (
                 <>
-                  {" "}
-                  • Transp.:{" "}
+                  <span className="opacity-60">• Transp.:</span>
                   <span className="font-mono">{transpose > 0 ? `+${transpose}` : transpose}</span>
                 </>
               ) : null}
             </div>
 
             <div className="mt-2 text-sm opacity-70">{dirty ? "Alterações pendentes." : "Tudo salvo."}</div>
-
-            {song.tags?.length ? (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {song.tags.map((t) => (
-                  <span key={t} className="rounded-full border px-2 py-0.5 text-xs opacity-90">
-                    {t}
-                  </span>
-                ))}
-              </div>
-            ) : null}
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -226,7 +239,6 @@ export default function SongViewer({ song }: { song: SongDetail }) {
                             key={`${c.chord}-${c.pos}-${chordIdx}`}
                             className="rounded-md border px-2 py-1 text-xs font-mono"
                             onClick={() => openPicker(partIdx, lineIdx, chordIdx, c.chord)}
-                            title="Clique para trocar o acorde"
                           >
                             {c.chord}
                           </button>
