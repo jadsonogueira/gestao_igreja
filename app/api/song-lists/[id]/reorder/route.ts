@@ -21,11 +21,11 @@ export async function POST(req: Request, { params }: Params) {
       );
     }
 
-    // pega todos os itens da lista em ordem
+    // pega itens na ordem atual (mesmo que order esteja todo 0, createdAt dá uma sequência)
     const items = await prisma.songListItem.findMany({
       where: { listId },
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-      select: { id: true, order: true },
+      select: { id: true },
     });
 
     const idx = items.findIndex((x) => x.id === itemId);
@@ -41,20 +41,22 @@ export async function POST(req: Request, { params }: Params) {
       return NextResponse.json({ success: true, data: { unchanged: true } });
     }
 
-    const a = items[idx];
-    const b = items[swapWith];
+    // swap na lista em memória
+    const reordered = [...items];
+    const tmp = reordered[idx];
+    reordered[idx] = reordered[swapWith];
+    reordered[swapWith] = tmp;
 
-    // swap dos "order" (garante persistência)
-    await prisma.$transaction([
+    // ✅ regrava a ordem inteira (evita empate, corrige listas antigas)
+    // Use passos de 10 para facilitar inserções futuras (opcional)
+    const updates = reordered.map((it, i) =>
       prisma.songListItem.update({
-        where: { id: a.id },
-        data: { order: b.order },
-      }),
-      prisma.songListItem.update({
-        where: { id: b.id },
-        data: { order: a.order },
-      }),
-    ]);
+        where: { id: it.id },
+        data: { order: (i + 1) * 10 },
+      })
+    );
+
+    await prisma.$transaction(updates);
 
     return NextResponse.json({ success: true });
   } catch (error) {
