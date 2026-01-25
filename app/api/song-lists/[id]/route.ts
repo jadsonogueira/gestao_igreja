@@ -8,6 +8,10 @@ type Params = {
   params: { id: string };
 };
 
+function normKey(k?: string | null) {
+  return String(k ?? "").trim().toUpperCase();
+}
+
 export async function GET(_req: Request, { params }: Params) {
   try {
     const id = params.id;
@@ -32,7 +36,6 @@ export async function GET(_req: Request, { params }: Params) {
                 artist: true,
                 originalKey: true,
                 tags: true,
-                createdAt: true,
                 updatedAt: true,
               },
             },
@@ -48,10 +51,25 @@ export async function GET(_req: Request, { params }: Params) {
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      data: list,
-    });
+    // ✅ garante o shape que o front usa
+    const data = {
+      id: list.id,
+      name: list.name,
+      items: (list.items ?? []).map((it) => ({
+        id: it.id,
+        order: it.order ?? 0,
+        song: {
+          id: it.song.id,
+          title: it.song.title,
+          artist: it.song.artist,
+          originalKey: normKey(it.song.originalKey),
+          tags: it.song.tags ?? [],
+          updatedAt: it.song.updatedAt,
+        },
+      })),
+    };
+
+    return NextResponse.json({ success: true, data });
   } catch (error) {
     console.error("Error fetching song list:", error);
     return NextResponse.json(
@@ -80,23 +98,19 @@ export async function PATCH(req: Request, { params }: Params) {
       );
     }
 
-    // Permitimos atualizar apenas o nome (e outras flags futuras)
-    const name =
-      typeof body.name === "string" ? body.name.trim() : undefined;
+    const nameRaw = typeof (body as any).name === "string" ? (body as any).name : "";
+    const name = nameRaw.trim().replace(/\s+/g, " ");
 
-    const dataToUpdate: any = {};
-    if (name) dataToUpdate.name = name;
-
-    if (Object.keys(dataToUpdate).length === 0) {
+    if (!name) {
       return NextResponse.json(
-        { success: false, error: "Nada para atualizar" },
+        { success: false, error: "Nome inválido" },
         { status: 400 }
       );
     }
 
     const updated = await prisma.songList.update({
       where: { id },
-      data: dataToUpdate,
+      data: { name },
       select: { id: true, name: true, updatedAt: true },
     });
 
@@ -121,14 +135,8 @@ export async function DELETE(_req: Request, { params }: Params) {
       );
     }
 
-    // apaga itens primeiro (Mongo + Prisma às vezes não faz cascade perfeito)
-    await prisma.songListItem.deleteMany({
-      where: { listId: id },
-    });
-
-    await prisma.songList.delete({
-      where: { id },
-    });
+    await prisma.songListItem.deleteMany({ where: { listId: id } });
+    await prisma.songList.delete({ where: { id } });
 
     return NextResponse.json({ success: true });
   } catch (error) {
