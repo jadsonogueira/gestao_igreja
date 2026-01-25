@@ -202,3 +202,32 @@ model Song {
   @@index([searchIndex])
   @@index([originalKey])
 }
+
+model SongList {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // relação N:N
+  items SongListItem[]
+
+  @@unique([name])
+  @@index([name])
+}
+
+model SongListItem {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  listId    String   @db.ObjectId
+  songId    String   @db.ObjectId
+  order     Int      @default(0)
+
+  createdAt DateTime @default(now())
+
+  list SongList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  song Song     @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@unique([listId, songId])
+  @@index([listId])
+  @@index([songId])
+}
