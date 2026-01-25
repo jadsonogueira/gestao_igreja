@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 import { transposeChordTokens, type AccidentalPref } from "@/lib/chords";
 
@@ -46,12 +46,32 @@ function partLabel(p: SongPart) {
   return p.type;
 }
 
+async function requestWakeLock(): Promise<any | null> {
+  try {
+    // @ts-ignore
+    if (!navigator?.wakeLock?.request) return null;
+    // @ts-ignore
+    return await navigator.wakeLock.request("screen");
+  } catch {
+    return null;
+  }
+}
+
 export default function SongCultoPage({ params }: { params: { id: string } }) {
   const [song, setSong] = useState<SongDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [transpose, setTranspose] = useState(0);
   const accidentalPref: AccidentalPref = "sharp";
+
+  // ✅ controles do modo culto
+  const [showChords, setShowChords] = useState(true);
+  const [fontSize, setFontSize] = useState(18); // px
+  const [lineHeight, setLineHeight] = useState(1.7);
+
+  // ✅ wake lock
+  const [keepAwake, setKeepAwake] = useState(false);
+  const wakeLockRef = useRef<any | null>(null);
 
   async function load() {
     setLoading(true);
@@ -70,18 +90,48 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
 
+  useEffect(() => {
+    let mounted = true;
+
+    async function on() {
+      const wl = await requestWakeLock();
+      if (!mounted) return;
+      wakeLockRef.current = wl;
+
+      if (!wl) {
+        toast("Seu navegador não suportou 'manter a tela ligada'.", { icon: "ℹ️" });
+        setKeepAwake(false);
+      }
+    }
+
+    async function off() {
+      try {
+        await wakeLockRef.current?.release?.();
+      } catch {}
+      wakeLockRef.current = null;
+    }
+
+    if (keepAwake) on();
+    else off();
+
+    return () => {
+      mounted = false;
+      off();
+    };
+  }, [keepAwake]);
+
   const parts = useMemo(() => song?.content?.parts ?? [], [song]);
 
   return (
     <main className="mx-auto max-w-4xl p-4 space-y-4">
       <div className="sticky top-0 z-10 bg-white/90 dark:bg-black/90 backdrop-blur border rounded-xl p-3">
         <div className="flex items-start justify-between gap-3">
-          <div>
+          <div className="min-w-0">
             <a className="text-sm opacity-70 underline" href={`/songs/${params.id}`}>
               ← Voltar
             </a>
 
-            <div className="mt-1 text-xl font-semibold">{song?.title ?? "Cifra"}</div>
+            <div className="mt-1 text-xl font-semibold truncate">{song?.title ?? "Cifra"}</div>
             <div className="text-sm opacity-80">
               {song?.artist ? `${song.artist} • ` : ""}
               Tom salvo: <strong>{song?.originalKey ?? "-"}</strong>
@@ -89,11 +139,61 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
                 <>
                   {" "}
                   • Transp.:{" "}
-                  <span className="font-mono">
-                    {transpose > 0 ? `+${transpose}` : transpose}
-                  </span>
+                  <span className="font-mono">{transpose > 0 ? `+${transpose}` : transpose}</span>
                 </>
               ) : null}
+            </div>
+
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button
+                className="rounded-lg border px-3 py-2 text-sm"
+                onClick={() => setShowChords((v) => !v)}
+                title="Mostrar/ocultar cifras"
+              >
+                {showChords ? "Ocultar cifras" : "Mostrar cifras"}
+              </button>
+
+              <button
+                className="rounded-lg border px-3 py-2 text-sm"
+                onClick={() => setKeepAwake((v) => !v)}
+                title="Tentar manter a tela ligada"
+              >
+                {keepAwake ? "Tela ligada ✓" : "Manter tela ligada"}
+              </button>
+
+              <div className="flex gap-2">
+                <button
+                  className="rounded-lg border px-3 py-2 text-sm"
+                  onClick={() => setFontSize((v) => Math.max(14, v - 2))}
+                  title="Diminuir fonte"
+                >
+                  A-
+                </button>
+                <button
+                  className="rounded-lg border px-3 py-2 text-sm"
+                  onClick={() => setFontSize((v) => Math.min(34, v + 2))}
+                  title="Aumentar fonte"
+                >
+                  A+
+                </button>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  className="rounded-lg border px-3 py-2 text-sm"
+                  onClick={() => setLineHeight((v) => Math.max(1.2, Number((v - 0.1).toFixed(1))))}
+                  title="Menos espaçamento"
+                >
+                  ⇣
+                </button>
+                <button
+                  className="rounded-lg border px-3 py-2 text-sm"
+                  onClick={() => setLineHeight((v) => Math.min(2.2, Number((v + 0.1).toFixed(1))))}
+                  title="Mais espaçamento"
+                >
+                  ⇡
+                </button>
+              </div>
             </div>
           </div>
 
@@ -150,17 +250,26 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
                   transpose,
                   accidentalPref
                 );
-                const chordOverlay = buildChordOverlay(line.lyric ?? "", transposedTokens);
+
+                const chordOverlay = showChords
+                  ? buildChordOverlay(line.lyric ?? "", transposedTokens)
+                  : "";
 
                 return (
                   <div key={lineIdx} className="rounded-lg border p-4">
                     {chordOverlay ? (
-                      <div className="mb-2 whitespace-pre font-mono text-base sm:text-lg leading-7 opacity-90">
+                      <div
+                        className="mb-2 whitespace-pre font-mono opacity-90"
+                        style={{ fontSize: Math.max(12, fontSize - 2), lineHeight }}
+                      >
                         {chordOverlay}
                       </div>
                     ) : null}
 
-                    <div className="whitespace-pre font-mono text-base sm:text-lg leading-7">
+                    <div
+                      className="whitespace-pre font-mono"
+                      style={{ fontSize, lineHeight }}
+                    >
                       {line.lyric ?? ""}
                     </div>
                   </div>
