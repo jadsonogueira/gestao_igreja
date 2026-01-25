@@ -6,13 +6,21 @@ import toast from "react-hot-toast";
 
 import type { SongDetail } from "./page";
 import ChordPicker from "./ChordPicker";
-import { transposeChord, transposeChordTokens, type AccidentalPref } from "@/lib/chords";
+import {
+  transposeChord,
+  transposeChordTokens,
+  type AccidentalPref,
+} from "@/lib/chords";
 
 type SongChordToken = { chord: string; pos: number };
 type SongLine = { lyric: string; chords: SongChordToken[] };
 type SongPart = { type: string; title?: string | null; lines: SongLine[] };
 
 const KEY_OPTIONS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"] as const;
+
+function normKey(k: string) {
+  return String(k ?? "").trim().toUpperCase();
+}
 
 function buildChordOverlay(lyric: string, chords: SongChordToken[]) {
   if (!chords?.length) return "";
@@ -62,19 +70,19 @@ export default function SongViewer({ song }: { song: SongDetail }) {
     () => deepCloneParts(song.content?.parts ?? [])
   );
 
-  // ✅ tom original editável
-  const [originalKey, setOriginalKey] = useState<string>(song.originalKey);
+  // ✅ tom original editável (normalizado)
+  const [originalKey, setOriginalKey] = useState<string>(normKey(song.originalKey));
 
   // ✅ snapshot atualizado após salvar
   const [snapshot, setSnapshot] = useState<string>(() =>
     JSON.stringify({
       parts: song.content?.parts ?? [],
-      originalKey: song.originalKey,
+      originalKey: normKey(song.originalKey),
     })
   );
 
   const dirty = useMemo(() => {
-    const now = JSON.stringify({ parts: partsBase, originalKey });
+    const now = JSON.stringify({ parts: partsBase, originalKey: normKey(originalKey) });
     return now !== snapshot;
   }, [partsBase, originalKey, snapshot]);
 
@@ -89,7 +97,12 @@ export default function SongViewer({ song }: { song: SongDetail }) {
 
   const parts = useMemo(() => partsBase ?? [], [partsBase]);
 
-  function openPicker(partIdx: number, lineIdx: number, chordIdx: number, chordShown: string) {
+  function openPicker(
+    partIdx: number,
+    lineIdx: number,
+    chordIdx: number,
+    chordShown: string
+  ) {
     setSelected({ partIdx, lineIdx, chordIdx, displayChord: chordShown });
     setPickerOpen(true);
   }
@@ -98,11 +111,14 @@ export default function SongViewer({ song }: { song: SongDetail }) {
     if (!selected) return;
 
     const newChordBase =
-      transpose !== 0 ? transposeChord(newChordShown, -transpose, accidentalPref) : newChordShown;
+      transpose !== 0
+        ? transposeChord(newChordShown, -transpose, accidentalPref)
+        : newChordShown;
 
     setPartsBase((prev) => {
       const next = deepCloneParts(prev);
-      const target = next[selected.partIdx]?.lines?.[selected.lineIdx]?.chords?.[selected.chordIdx];
+      const target =
+        next[selected.partIdx]?.lines?.[selected.lineIdx]?.chords?.[selected.chordIdx];
       if (target) target.chord = newChordBase;
       return next;
     });
@@ -115,23 +131,27 @@ export default function SongViewer({ song }: { song: SongDetail }) {
     const t = toast.loading("Salvando...");
 
     try {
+      const keyToSave = normKey(originalKey);
+
       const res = await fetch(`/api/songs/${song.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           content: { parts: partsBase },
-          originalKey, // ✅ agora salva no banco
+          originalKey: keyToSave,
         }),
       });
 
       const json = await res.json();
       if (!res.ok || !json?.success) throw new Error(json?.error || "Erro ao salvar");
 
-      // ✅ confirma o que veio do backend
-      setOriginalKey(json.data.originalKey ?? originalKey);
+      const serverKey = normKey(json?.data?.originalKey ?? keyToSave);
 
-      // ✅ atualiza snapshot
-      setSnapshot(JSON.stringify({ parts: partsBase, originalKey: json.data.originalKey ?? originalKey }));
+      // ✅ confirma o que veio do backend
+      setOriginalKey(serverKey);
+
+      // ✅ atualiza snapshot coerente (com serverKey)
+      setSnapshot(JSON.stringify({ parts: partsBase, originalKey: serverKey }));
 
       toast.success("Tudo salvo.", { id: t });
       router.refresh();
@@ -166,8 +186,8 @@ export default function SongViewer({ song }: { song: SongDetail }) {
 
               <select
                 className="border rounded px-2 py-1 text-sm"
-                value={originalKey}
-                onChange={(e) => setOriginalKey(e.target.value)}
+                value={normKey(originalKey)}
+                onChange={(e) => setOriginalKey(normKey(e.target.value))}
                 title="Editar tom original"
               >
                 {KEY_OPTIONS.map((k) => (
@@ -180,22 +200,36 @@ export default function SongViewer({ song }: { song: SongDetail }) {
               {transpose !== 0 ? (
                 <>
                   <span className="opacity-60">• Transp.:</span>
-                  <span className="font-mono">{transpose > 0 ? `+${transpose}` : transpose}</span>
+                  <span className="font-mono">
+                    {transpose > 0 ? `+${transpose}` : transpose}
+                  </span>
                 </>
               ) : null}
             </div>
 
-            <div className="mt-2 text-sm opacity-70">{dirty ? "Alterações pendentes." : "Tudo salvo."}</div>
+            <div className="mt-2 text-sm opacity-70">
+              {dirty ? "Alterações pendentes." : "Tudo salvo."}
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button className="rounded-lg border px-3 py-2 text-sm" onClick={() => setTranspose((v) => v - 1)}>
+            <button
+              className="rounded-lg border px-3 py-2 text-sm"
+              onClick={() => setTranspose((v) => v - 1)}
+            >
               -1
             </button>
-            <button className="rounded-lg border px-3 py-2 text-sm" onClick={() => setTranspose(0)} title="Visual">
+            <button
+              className="rounded-lg border px-3 py-2 text-sm"
+              onClick={() => setTranspose(0)}
+              title="Visual"
+            >
               0
             </button>
-            <button className="rounded-lg border px-3 py-2 text-sm" onClick={() => setTranspose((v) => v + 1)}>
+            <button
+              className="rounded-lg border px-3 py-2 text-sm"
+              onClick={() => setTranspose((v) => v + 1)}
+            >
               +1
             </button>
 
@@ -215,22 +249,32 @@ export default function SongViewer({ song }: { song: SongDetail }) {
         {parts.map((part, partIdx) => (
           <section key={`${part.type}-${partIdx}`} className="space-y-3">
             <div className="flex items-center gap-2">
-              <div className="text-xs font-semibold uppercase tracking-wide opacity-70">{partLabel(part)}</div>
+              <div className="text-xs font-semibold uppercase tracking-wide opacity-70">
+                {partLabel(part)}
+              </div>
               <div className="h-px flex-1 bg-black/10 dark:bg-white/10" />
             </div>
 
             <div className="space-y-4">
               {part.lines.map((line, lineIdx) => {
-                const transposedTokens = transposeChordTokens(line.chords ?? [], transpose, accidentalPref);
+                const transposedTokens = transposeChordTokens(
+                  line.chords ?? [],
+                  transpose,
+                  accidentalPref
+                );
                 const chordOverlay = buildChordOverlay(line.lyric ?? "", transposedTokens);
 
                 return (
                   <div key={lineIdx} className="rounded-lg border p-3">
                     {chordOverlay ? (
-                      <div className="mb-1 whitespace-pre font-mono text-sm leading-6 opacity-90">{chordOverlay}</div>
+                      <div className="mb-1 whitespace-pre font-mono text-sm leading-6 opacity-90">
+                        {chordOverlay}
+                      </div>
                     ) : null}
 
-                    <div className="whitespace-pre font-mono text-sm leading-6">{line.lyric ?? ""}</div>
+                    <div className="whitespace-pre font-mono text-sm leading-6">
+                      {line.lyric ?? ""}
+                    </div>
 
                     {transposedTokens.length ? (
                       <div className="mt-2 flex flex-wrap gap-2">
