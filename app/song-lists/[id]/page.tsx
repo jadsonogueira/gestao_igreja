@@ -81,6 +81,14 @@ export default function SongListDetailPage({
   const [dupOpen, setDupOpen] = useState(false);
   const [dupName, setDupName] = useState("");
 
+  // rename modal
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameName, setRenameName] = useState("");
+
+  // delete modal
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+
   async function load() {
     setLoading(true);
     const res = await fetch(`/api/song-lists/${params.id}`, {
@@ -150,9 +158,50 @@ export default function SongListDetailPage({
       setDupOpen(false);
       setDupName("");
 
-      if (newId) {
-        window.location.href = `/song-lists/${newId}`;
-      }
+      if (newId) window.location.href = `/song-lists/${newId}`;
+    } catch (e: any) {
+      toast.error(e?.message || "Erro", { id: t });
+    }
+  }
+
+  async function renameList() {
+    const name = renameName.trim().replace(/\s+/g, " ");
+    if (!name) return toast.error("Informe um nome");
+
+    const t = toast.loading("Renomeando...");
+    try {
+      const res = await fetch(`/api/song-lists/${params.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) throw new Error(json?.error || "Erro");
+
+      toast.success("Renomeado!", { id: t });
+      setRenameOpen(false);
+      await load();
+    } catch (e: any) {
+      toast.error(e?.message || "Erro", { id: t });
+    }
+  }
+
+  async function deleteList() {
+    const currentName = data?.name ?? "";
+    if (deleteConfirm.trim() !== currentName) {
+      return toast.error("Digite exatamente o nome da lista para confirmar");
+    }
+
+    const t = toast.loading("Excluindo...");
+    try {
+      const res = await fetch(`/api/song-lists/${params.id}`, {
+        method: "DELETE",
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) throw new Error(json?.error || "Erro");
+
+      toast.success("Lista excluída!", { id: t });
+      window.location.href = "/song-lists";
     } catch (e: any) {
       toast.error(e?.message || "Erro", { id: t });
     }
@@ -205,10 +254,19 @@ export default function SongListDetailPage({
           <button
             className="border rounded px-3 py-2 text-sm"
             onClick={() => {
+              setRenameName(data?.name ?? "");
+              setRenameOpen(true);
+            }}
+          >
+            Renomear
+          </button>
+
+          <button
+            className="border rounded px-3 py-2 text-sm"
+            onClick={() => {
               setDupName("");
               setDupOpen(true);
             }}
-            title="Duplicar esta lista (mantém a ordem)"
           >
             Duplicar lista
           </button>
@@ -219,7 +277,6 @@ export default function SongListDetailPage({
               setExportMode("text");
               setExportOpen(true);
             }}
-            title="Exportar em texto"
           >
             Exportar (Texto)
           </button>
@@ -230,9 +287,19 @@ export default function SongListDetailPage({
               setExportMode("md");
               setExportOpen(true);
             }}
-            title="Exportar em formato mais bonito"
           >
             Exportar (Markdown)
+          </button>
+
+          <button
+            className="border rounded px-3 py-2 text-sm"
+            onClick={() => {
+              setDeleteConfirm("");
+              setDeleteOpen(true);
+            }}
+            title="Excluir permanentemente"
+          >
+            Excluir
           </button>
         </div>
       </div>
@@ -267,19 +334,6 @@ export default function SongListDetailPage({
                   <div className="text-xs opacity-70">
                     {s.artist ? `${s.artist} • ` : ""}Tom: {s.originalKey}
                   </div>
-
-                  {s.tags?.length ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {s.tags.map((t) => (
-                        <span
-                          key={t}
-                          className="rounded-full border px-2 py-0.5 text-xs opacity-90"
-                        >
-                          {t}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
                 </div>
 
                 <div className="flex flex-col gap-2 items-end">
@@ -288,7 +342,6 @@ export default function SongListDetailPage({
                       className="border rounded px-2 py-1 text-sm"
                       disabled={isFirst || disabled}
                       onClick={() => move(it.id, "up")}
-                      title="Mover para cima"
                     >
                       ↑
                     </button>
@@ -296,7 +349,6 @@ export default function SongListDetailPage({
                       className="border rounded px-2 py-1 text-sm"
                       disabled={isLast || disabled}
                       onClick={() => move(it.id, "down")}
-                      title="Mover para baixo"
                     >
                       ↓
                     </button>
@@ -305,7 +357,6 @@ export default function SongListDetailPage({
                   <button
                     className="border rounded px-3 py-2 text-sm"
                     onClick={() => removeSong(s.id)}
-                    title="Remover da lista"
                   >
                     Remover
                   </button>
@@ -316,7 +367,7 @@ export default function SongListDetailPage({
         })}
       </div>
 
-      {/* ✅ modal export */}
+      {/* MODAL EXPORT */}
       {exportOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
           <div className="w-full max-w-xl rounded-xl border bg-white p-4 shadow-lg dark:bg-black">
@@ -363,7 +414,7 @@ export default function SongListDetailPage({
         </div>
       ) : null}
 
-      {/* ✅ modal duplicar */}
+      {/* MODAL DUPLICAR */}
       {dupOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
           <div className="w-full max-w-xl rounded-xl border bg-white p-4 shadow-lg dark:bg-black">
@@ -403,6 +454,103 @@ export default function SongListDetailPage({
               <button
                 className="border rounded px-3 py-2 text-sm"
                 onClick={() => setDupOpen(false)}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* MODAL RENOMEAR */}
+      {renameOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div className="w-full max-w-xl rounded-xl border bg-white p-4 shadow-lg dark:bg-black">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">Renomear lista</div>
+                <div className="text-xs opacity-70">
+                  O nome é único (não pode repetir).
+                </div>
+              </div>
+
+              <button
+                className="text-sm underline opacity-70"
+                onClick={() => setRenameOpen(false)}
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              <label className="text-xs opacity-70">Novo nome</label>
+              <input
+                className="w-full rounded border px-3 py-2 text-sm"
+                value={renameName}
+                onChange={(e) => setRenameName(e.target.value)}
+                placeholder="Ex: Louvor de Domingo"
+              />
+            </div>
+
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                className="border rounded px-3 py-2 text-sm"
+                onClick={renameList}
+              >
+                Salvar
+              </button>
+              <button
+                className="border rounded px-3 py-2 text-sm"
+                onClick={() => setRenameOpen(false)}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* MODAL EXCLUIR */}
+      {deleteOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div className="w-full max-w-xl rounded-xl border bg-white p-4 shadow-lg dark:bg-black">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold">Excluir lista</div>
+                <div className="text-xs opacity-70">
+                  Para confirmar, digite exatamente:{" "}
+                  <strong>{data?.name ?? ""}</strong>
+                </div>
+              </div>
+
+              <button
+                className="text-sm underline opacity-70"
+                onClick={() => setDeleteOpen(false)}
+              >
+                Fechar
+              </button>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              <label className="text-xs opacity-70">Confirmação</label>
+              <input
+                className="w-full rounded border px-3 py-2 text-sm"
+                value={deleteConfirm}
+                onChange={(e) => setDeleteConfirm(e.target.value)}
+                placeholder={data?.name ?? ""}
+              />
+            </div>
+
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                className="border rounded px-3 py-2 text-sm"
+                onClick={deleteList}
+              >
+                Excluir
+              </button>
+              <button
+                className="border rounded px-3 py-2 text-sm"
+                onClick={() => setDeleteOpen(false)}
               >
                 Cancelar
               </button>
