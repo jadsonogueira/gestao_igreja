@@ -170,7 +170,6 @@ model Escala {
   @@index([googleCalendarId, googleEventId], name: "google_event")
   @@index([googleEventId], name: "googleEventId_idx")
 }
-
 //////////////////////////////////////////////////////
 // ✅ BANCO DE CIFRAS — SONG
 //////////////////////////////////////////////////////
@@ -199,33 +198,26 @@ model Song {
   // Tags livres (louvor, ceia, natal, congregacional...)
   tags String[] @default([])
 
-  // ✅ inverso para SongListItem
-  listItems SongListItem[]
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // ✅ relação inversa (evita erro Prisma)
+  listItems SongListItem[]
 
   @@index([title])
   @@index([searchIndex])
   @@index([originalKey])
 }
 
-//////////////////////////////////////////////////////
-// ✅ LISTAS DE CIFRAS
-//////////////////////////////////////////////////////
-
 model SongList {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
   name      String
-
-  // ✅ Tom alvo da lista (ex: "D"). Se null, não fixa.
-  targetKey String?
-
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   items SongListItem[]
 
+  // ✅ deixe só o unique (não ponha @@index([name]) junto, senão dá conflito no Mongo)
   @@unique([name])
 }
 
