@@ -6,6 +6,8 @@ import toast from "react-hot-toast";
 type SongList = {
   id: string;
   name: string;
+  inList?: boolean;
+  itemId?: string | null;
 };
 
 export default function AddToListButton({
@@ -22,7 +24,9 @@ export default function AddToListButton({
   async function loadLists() {
     setLoading(true);
     try {
-      const res = await fetch("/api/song-lists", { cache: "no-store" });
+      const res = await fetch(`/api/song-lists?songId=${encodeURIComponent(songId)}`, {
+        cache: "no-store",
+      });
       const json = await res.json();
       if (!res.ok || !json?.success) {
         throw new Error(json?.error || "Erro ao carregar listas");
@@ -41,8 +45,6 @@ export default function AddToListButton({
   }, [open]);
 
   async function addToList(listId: string) {
-    if (!listId) return;
-
     const t = toast.loading("Adicionando na lista...");
     try {
       const res = await fetch(`/api/song-lists/${listId}/add`, {
@@ -57,9 +59,38 @@ export default function AddToListButton({
       }
 
       toast.success("Adicionado!", { id: t });
-      setOpen(false);
+      await loadLists(); // mantém dropdown aberto e atualizado
     } catch (e: any) {
       toast.error(e?.message || "Erro", { id: t });
+    }
+  }
+
+  async function removeFromList(listId: string) {
+    const t = toast.loading("Removendo da lista...");
+    try {
+      const res = await fetch(`/api/song-lists/${listId}/remove`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ songId }),
+      });
+      const json = await res.json();
+
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || "Erro ao remover da lista");
+      }
+
+      toast.success("Removido!", { id: t });
+      await loadLists(); // mantém dropdown aberto e atualizado
+    } catch (e: any) {
+      toast.error(e?.message || "Erro", { id: t });
+    }
+  }
+
+  async function toggleList(list: SongList) {
+    if (list.inList) {
+      await removeFromList(list.id);
+    } else {
+      await addToList(list.id);
     }
   }
 
@@ -74,15 +105,15 @@ export default function AddToListButton({
       <button
         className={buttonClass}
         onClick={() => setOpen((v) => !v)}
-        title="Adicionar esta cifra a uma lista"
+        title="Adicionar/remover esta cifra em listas"
       >
         + Lista
       </button>
 
       {open ? (
-        <div className="absolute right-0 z-50 mt-2 w-64 rounded-lg border bg-white p-2 shadow-md dark:bg-black">
+        <div className="absolute right-0 z-50 mt-2 w-72 rounded-lg border bg-white p-2 shadow-md dark:bg-black">
           <div className="mb-2 text-xs font-semibold opacity-70">
-            Adicionar à lista
+            Listas (✅ = já está)
           </div>
 
           {loading ? (
@@ -107,9 +138,15 @@ export default function AddToListButton({
                 <button
                   key={l.id}
                   className="w-full rounded-md border px-2 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/5"
-                  onClick={() => addToList(l.id)}
+                  onClick={() => toggleList(l)}
+                  title={l.inList ? "Clique para remover" : "Clique para adicionar"}
                 >
-                  {l.name}
+                  <div className="flex items-center justify-between gap-2">
+                    <span>{l.name}</span>
+                    <span className="text-xs opacity-70">
+                      {l.inList ? "✅ remover" : "adicionar"}
+                    </span>
+                  </div>
                 </button>
               ))}
             </div>
