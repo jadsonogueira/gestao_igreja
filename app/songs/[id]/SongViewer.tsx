@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
@@ -202,7 +203,12 @@ export default function SongViewer({ song }: { song: SongDetail }) {
       setTranspose(0);
 
       // atualiza snapshot
-      setSnapshot(JSON.stringify({ parts: newBaseParts, originalKey: json.data.originalKey ?? newOriginalKey }));
+      setSnapshot(
+        JSON.stringify({
+          parts: newBaseParts,
+          originalKey: json.data.originalKey ?? newOriginalKey,
+        })
+      );
 
       toast.success("Tudo salvo.", { id: t });
       router.refresh();
@@ -237,8 +243,7 @@ export default function SongViewer({ song }: { song: SongDetail }) {
                 <>
                   {" "}
                   • Tom (após salvar):{" "}
-                  <strong>{transposeKey(savedOriginalKey, transpose)}</strong>
-                  {" "}
+                  <strong>{transposeKey(savedOriginalKey, transpose)}</strong>{" "}
                   • Transp.:{" "}
                   <span className="font-mono">
                     {transpose > 0 ? `+${transpose}` : transpose}
@@ -266,6 +271,24 @@ export default function SongViewer({ song }: { song: SongDetail }) {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            {/* ✅ NOVO: Importar */}
+            <Link
+              href="/songs/import"
+              className="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50 transition"
+              title="Importar uma cifra colando texto (Cifra Club)"
+            >
+              Importar
+            </Link>
+
+            {/* ✅ (recomendado) Modo culto */}
+            <Link
+              href={`/songs/${song.id}/culto`}
+              className="rounded-lg border px-3 py-2 text-sm hover:bg-gray-50 transition"
+              title="Abrir modo culto (visual limpo)"
+            >
+              Culto
+            </Link>
+
             <button
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={() => setTranspose((v) => v - 1)}
@@ -292,7 +315,11 @@ export default function SongViewer({ song }: { song: SongDetail }) {
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={handleSave}
               disabled={!dirty}
-              title={dirty ? "Salvar (transforma a transposição em tom original)" : "Nada para salvar"}
+              title={
+                dirty
+                  ? "Salvar (transforma a transposição em tom original)"
+                  : "Nada para salvar"
+              }
             >
               Salvar
             </button>
