@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
-import { buildSearchIndex, parseSongFromChordAboveText } from "@/lib/songImport";
+import { buildSearchIndex, parseSongAuto } from "@/lib/songImport";
 
 type ImportSongBody = {
   title?: string;
@@ -65,7 +65,7 @@ function cleanRawSongText(raw: string) {
     if (dropLine(normalized)) continue;
 
     // normaliza múltiplos espaços, mas mantém alinhamento de cifras:
-    // aqui usamos um meio-termo: reduz 4+ espaços para 3 (evita “explodir” no mobile)
+    // reduz 4+ espaços para 3
     const soft = normalized.replace(/ {4,}/g, "   ");
 
     cleaned.push(soft);
@@ -127,7 +127,7 @@ function detectKeyFromRawText(rawText: string): string | null {
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean)
-    .slice(0, 35); // geralmente no topo
+    .slice(0, 35);
 
   for (const line of lines) {
     // Tom: D / Key: C
@@ -145,7 +145,9 @@ function detectKeyFromRawText(rawText: string): string | null {
     }
 
     // "Capotraste: 2 (Tom: C)" -> extrai o Tom dentro
-    m = line.match(/\b(tom|key)\s*:\s*([A-G](?:#|b)?|dó|do|ré|re|mi|fá|fa|sol|lá|la|si)\b/i);
+    m = line.match(
+      /\b(tom|key)\s*:\s*([A-G](?:#|b)?|dó|do|ré|re|mi|fá|fa|sol|lá|la|si)\b/i
+    );
     if (m) {
       const candidate = normalizeKey(m[2]);
       if (candidate) return candidate;
@@ -174,7 +176,7 @@ export async function POST(request: Request) {
     let body: ImportSongBody;
     try {
       body = (await request.json()) as ImportSongBody;
-    } catch (e) {
+    } catch {
       return NextResponse.json(
         {
           success: false,
@@ -205,17 +207,17 @@ export async function POST(request: Request) {
       );
     }
 
-    // ✅ detectar tom do TEXTO ORIGINAL (antes de limpar),
-    // porque a limpeza remove "Tom:" etc.
+    // ✅ detectar tom do TEXTO ORIGINAL (antes de limpar)
     const providedKey = String(body.originalKey ?? "").trim();
     const detectedKey = detectKeyFromRawText(rawTextInput);
-
     const originalKeyUsed = providedKey || detectedKey || "C";
 
     // ✅ limpar texto antes de parsear
     const rawTextClean = cleanRawSongText(rawTextInput);
 
-    const { content, chordsUsed } = parseSongAuto(rawText);
+    // ✅ IMPORTANTE: parsear o TEXTO LIMPO (não "rawText" inexistente)
+    const { content, chordsUsed, mode } = parseSongAuto(rawTextClean);
+
     const searchIndex = buildSearchIndex({ title, artist, content });
 
     const song = await prisma.song.create({
@@ -223,7 +225,7 @@ export async function POST(request: Request) {
         title,
         artist,
         originalKey: originalKeyUsed,
-        rawText: rawTextClean, // salva já limpo (melhor pro futuro)
+        rawText: rawTextClean,
         content: content as any,
         chordsUsed,
         searchIndex,
@@ -238,6 +240,7 @@ export async function POST(request: Request) {
         id: song.id,
         detectedKey: detectedKey || null,
         originalKeyUsed,
+        mode, // ✅ pra você confirmar se caiu em inline ou above
       },
     });
   } catch (error) {
