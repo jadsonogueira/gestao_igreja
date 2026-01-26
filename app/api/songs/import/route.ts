@@ -22,11 +22,8 @@ function normalizeTags(input: unknown): string[] {
 }
 
 /**
- * Remove “lixo” comum do Cifra Club e normaliza linhas:
- * - remove cabeçalhos e metadados (Tom:, Capotraste, etc.)
- * - troca TAB por espaços
- * - normaliza múltiplos espaços
- * - remove excesso de linhas vazias
+ * Remove “lixo” comum do Cifra Club e normaliza linhas.
+ * Obs: pro modo INLINE, a gente NÃO mexe na estrutura dos colchetes.
  */
 function cleanRawSongText(raw: string) {
   const lines = String(raw ?? "")
@@ -38,22 +35,18 @@ function cleanRawSongText(raw: string) {
     const s = t.trim();
     if (!s) return false;
 
-    // cabeçalhos comuns / metadados
     if (/^cifra\s+club\b/i.test(s)) return true;
     if (/^composi(c|ç)(a|ã)o\b/i.test(s)) return true;
-    if (/^tom\s*:/i.test(s)) return true; // mantemos o tom para detecção, mas removemos do corpo
+    if (/^tom\s*:/i.test(s)) return true;
     if (/^key\s*:/i.test(s)) return true;
     if (/^capotraste\b/i.test(s)) return true;
     if (/^afina(c|ç)(a|ã)o\b/i.test(s)) return true;
     if (/^tempo\b/i.test(s)) return true;
     if (/^ritmo\b/i.test(s)) return true;
     if (/^vers(a|ã)o\b/i.test(s)) return true;
-    if (/^(\d+)\s*x\s*$/i.test(s)) return true; // "2x" sozinho
+    if (/^(\d+)\s*x\s*$/i.test(s)) return true;
 
-    // linhas “decorativas”
     if (/^[\-\—\–\=\_]{3,}$/.test(s)) return true;
-
-    // links / créditos
     if (/^https?:\/\//i.test(s)) return true;
 
     return false;
@@ -64,11 +57,9 @@ function cleanRawSongText(raw: string) {
     const normalized = line.replace(/\s+$/g, ""); // trimEnd
     if (dropLine(normalized)) continue;
 
-    // normaliza múltiplos espaços, mas mantém alinhamento de cifras:
-    // reduz 4+ espaços para 3
-    const soft = normalized.replace(/ {4,}/g, "   ");
-
-    cleaned.push(soft);
+    // ✅ aqui não “amassa” demais, porque o modo acima-da-letra depende de espaços
+    // e o modo inline depende de posições naturais do texto.
+    cleaned.push(normalized);
   }
 
   // remove excesso de linhas vazias (no máximo 1 em sequência)
@@ -91,7 +82,6 @@ function cleanRawSongText(raw: string) {
 }
 
 const KEY_ALIASES: Record<string, string> = {
-  // PT-BR
   do: "C",
   "dó": "C",
   re: "D",
@@ -108,7 +98,6 @@ const KEY_ALIASES: Record<string, string> = {
 function normalizeKey(raw: string): string | null {
   const s = raw.trim();
 
-  // pega só a raiz: C, C#, Db, etc
   const m = s.match(/^([A-Ga-g])\s*([#b])?/);
   if (m) {
     const note = m[1].toUpperCase();
@@ -130,21 +119,18 @@ function detectKeyFromRawText(rawText: string): string | null {
     .slice(0, 35);
 
   for (const line of lines) {
-    // Tom: D / Key: C
     let m = line.match(/^(tom|key)\s*:\s*(.+)$/i);
     if (m) {
       const candidate = normalizeKey(m[2]);
       if (candidate) return candidate;
     }
 
-    // Tom D / Key C (sem :)
     m = line.match(/^(tom|key)\s+(.+)$/i);
     if (m) {
       const candidate = normalizeKey(m[2]);
       if (candidate) return candidate;
     }
 
-    // "Capotraste: 2 (Tom: C)" -> extrai o Tom dentro
     m = line.match(
       /\b(tom|key)\s*:\s*([A-G](?:#|b)?|dó|do|ré|re|mi|fá|fa|sol|lá|la|si)\b/i
     );
@@ -180,8 +166,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error:
-            "Body JSON inválido ou vazio. Verifique se o app está enviando o body corretamente.",
+          error: "Body JSON inválido ou vazio.",
           debug: { contentType, contentLength },
         },
         { status: 400 }
@@ -194,29 +179,24 @@ export async function POST(request: Request) {
     const tags = normalizeTags(body.tags);
 
     if (!title) {
-      return NextResponse.json(
-        { success: false, error: "Título é obrigatório" },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Título é obrigatório" }, { status: 400 });
     }
 
     if (!rawTextInput.trim()) {
-      return NextResponse.json(
-        { success: false, error: "Cole a cifra no campo de texto" },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Cole a cifra no campo de texto" }, { status: 400 });
     }
 
-    // ✅ detectar tom do TEXTO ORIGINAL (antes de limpar)
+    // detectar tom do texto ORIGINAL
     const providedKey = String(body.originalKey ?? "").trim();
     const detectedKey = detectKeyFromRawText(rawTextInput);
     const originalKeyUsed = providedKey || detectedKey || "C";
 
-    // ✅ limpar texto antes de parsear
+    // limpar texto antes de parsear
     const rawTextClean = cleanRawSongText(rawTextInput);
 
-    // ✅ IMPORTANTE: parsear o TEXTO LIMPO (não "rawText" inexistente)
-    const { content, chordsUsed, mode } = parseSongAuto(rawTextClean);
+    // ✅ parse AUTO (inline ou acima-da-letra)
+    const parsed = parseSongAuto(rawTextClean);
+    const { content, chordsUsed, mode } = parsed;
 
     const searchIndex = buildSearchIndex({ title, artist, content });
 
@@ -240,14 +220,11 @@ export async function POST(request: Request) {
         id: song.id,
         detectedKey: detectedKey || null,
         originalKeyUsed,
-        mode, // ✅ pra você confirmar se caiu em inline ou above
+        mode, // ✅ "inline" | "above"
       },
     });
   } catch (error) {
     console.error("Error importing song:", error);
-    return NextResponse.json(
-      { success: false, error: "Erro ao importar cifra" },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: false, error: "Erro ao importar cifra" }, { status: 500 });
   }
 }
