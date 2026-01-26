@@ -17,7 +17,7 @@ type SongChordToken = { chord: string; pos: number };
 type SongLine = { lyric: string; chords: SongChordToken[] };
 type SongPart = { type: string; title?: string | null; lines: SongLine[] };
 
-const KEY_OPTIONS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
+const KEY_OPTIONS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"] as const;
 
 function normKey(k?: string | null) {
   return String(k ?? "").trim().toUpperCase();
@@ -88,30 +88,36 @@ function transposePartsToNewBase(
 }
 
 /**
- * Renderiza a linha de acordes como "texto" clicável:
- * - preserva espaços (monospace)
- * - cada acorde vira um botão discreto no lugar certo
+ * Overlay clicável + com botões para mover posição (pos)
+ * - mostra o acorde no lugar (monospace)
+ * - o acorde é clicável (abre picker)
+ * - botões ◀ ▶ movem pos no BASE (antes da transposição visual)
  */
-function ChordOverlayClickable({
+function ChordOverlayEditable({
   lyric,
-  tokens,
-  onChordClick,
+  tokensShown, // tokens já transpostos (apenas para exibir)
+  tokensBase,  // tokens base (para mover pos)
+  onOpenPicker,
+  onMovePos,
 }: {
   lyric: string;
-  tokens: SongChordToken[];
-  onChordClick: (tokenIndex: number, chordShown: string) => void;
+  tokensShown: SongChordToken[];
+  tokensBase: SongChordToken[];
+  onOpenPicker: (tokenIndex: number, chordShown: string) => void;
+  onMovePos: (tokenIndex: number, delta: number) => void;
 }) {
-  if (!tokens?.length) return null;
+  if (!tokensShown?.length) return null;
 
   const maxNeeded = Math.max(
     lyric.length,
-    ...tokens.map((c) => (c.pos ?? 0) + (String(c.chord ?? "").length || 0))
+    ...tokensShown.map((c) => (c.pos ?? 0) + (String(c.chord ?? "").length || 0))
   );
 
   const safeLen = Math.max(0, maxNeeded);
 
+  // monta "overlay string" só pra preencher espaços
   const arr = Array(safeLen).fill(" ");
-  for (const c of tokens) {
+  for (const c of tokensShown) {
     const chord = String(c.chord ?? "");
     const start = Math.max(0, Math.min(Number(c.pos ?? 0), arr.length));
     for (let i = 0; i < chord.length && start + i < arr.length; i++) {
@@ -120,12 +126,13 @@ function ChordOverlayClickable({
   }
   const overlay = arr.join("");
 
+  // construir segmentos: espaços + acordes
   type Segment =
     | { type: "space"; text: string }
     | { type: "chord"; text: string; tokenIndex: number };
 
   const segments: Segment[] = [];
-  const sorted = [...tokens]
+  const sorted = [...tokensShown]
     .map((t, idx) => ({
       tokenIndex: idx,
       pos: Math.max(0, Number(t.pos ?? 0)),
@@ -152,22 +159,51 @@ function ChordOverlayClickable({
     segments.push({ type: "space", text: overlay.slice(cursor) });
   }
 
+  // dicas rápidas no mobile: botõezinhos pequenos
   return (
     <div className="mb-1 whitespace-pre font-mono text-sm leading-6 opacity-90">
       {segments.map((seg, i) => {
         if (seg.type === "space") {
           return <span key={`sp-${i}`}>{seg.text}</span>;
         }
+
+        const idx = seg.tokenIndex;
+        const shownChord = seg.text;
+
+        // segurança: base pode estar vazio (mas normalmente tem mesmo tamanho)
+        const basePos = tokensBase?.[idx]?.pos ?? 0;
+
         return (
-          <button
-            key={`ch-${i}`}
-            type="button"
-            onClick={() => onChordClick(seg.tokenIndex, seg.text)}
-            className="underline decoration-dotted underline-offset-2 hover:opacity-80"
-            title="Clique para trocar o acorde"
-          >
-            {seg.text}
-          </button>
+          <span key={`ch-${i}`} className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onMovePos(idx, -1)}
+              className="px-1 text-xs opacity-60 hover:opacity-100"
+              title={`Mover para esquerda (pos ${basePos} → ${Math.max(0, basePos - 1)})`}
+              aria-label="Mover acorde para esquerda"
+            >
+              ◀
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onOpenPicker(idx, shownChord)}
+              className="underline decoration-dotted underline-offset-2 hover:opacity-80"
+              title="Clique para trocar o acorde"
+            >
+              {shownChord}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onMovePos(idx, +1)}
+              className="px-1 text-xs opacity-60 hover:opacity-100"
+              title={`Mover para direita (pos ${basePos} → ${basePos + 1})`}
+              aria-label="Mover acorde para direita"
+            >
+              ▶
+            </button>
+          </span>
         );
       })}
     </div>
@@ -177,15 +213,21 @@ function ChordOverlayClickable({
 export default function SongViewer({ song }: { song: SongDetail }) {
   const router = useRouter();
 
+  // transposição VISUAL (não salva sozinha)
   const [transpose, setTranspose] = useState(0);
+
+  // preferência padrão: sustenidos
   const accidentalPref: AccidentalPref = "sharp";
 
+  // tom salvo no banco
   const [savedOriginalKey, setSavedOriginalKey] = useState(song.originalKey);
 
+  // base editável (sempre SEM a transposição visual aplicada)
   const [partsBase, setPartsBase] = useState<SongPart[]>(
     () => deepCloneParts(song.content?.parts ?? [])
   );
 
+  // snapshot pra detectar dirty
   const [snapshot, setSnapshot] = useState(() =>
     JSON.stringify({ parts: song.content?.parts ?? [], originalKey: song.originalKey })
   );
@@ -195,22 +237,18 @@ export default function SongViewer({ song }: { song: SongDetail }) {
     return now !== JSON.stringify({ ...JSON.parse(snapshot), transpose: 0 });
   }, [partsBase, savedOriginalKey, transpose, snapshot]);
 
+  // chord picker state
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selected, setSelected] = useState<{
     partIdx: number;
     lineIdx: number;
-    chordIdx: number;
-    displayChord: string;
+    chordIdx: number; // índice no array
+    displayChord: string; // acorde já transposto (o que o usuário vê)
   } | null>(null);
 
   const parts = useMemo(() => partsBase ?? [], [partsBase]);
 
-  function openPickerFromOverlay(
-    partIdx: number,
-    lineIdx: number,
-    tokenIndex: number,
-    chordShown: string
-  ) {
+  function openPickerFromOverlay(partIdx: number, lineIdx: number, tokenIndex: number, chordShown: string) {
     setSelected({ partIdx, lineIdx, chordIdx: tokenIndex, displayChord: chordShown });
     setPickerOpen(true);
   }
@@ -225,8 +263,7 @@ export default function SongViewer({ song }: { song: SongDetail }) {
 
     setPartsBase((prev) => {
       const next = deepCloneParts(prev);
-      const target =
-        next[selected.partIdx]?.lines?.[selected.lineIdx]?.chords?.[selected.chordIdx];
+      const target = next[selected.partIdx]?.lines?.[selected.lineIdx]?.chords?.[selected.chordIdx];
       if (target) target.chord = newChordBase;
       return next;
     });
@@ -235,10 +272,25 @@ export default function SongViewer({ song }: { song: SongDetail }) {
     setSelected(null);
   }
 
+  function moveChordPos(partIdx: number, lineIdx: number, chordIdx: number, delta: number) {
+    setPartsBase((prev) => {
+      const next = deepCloneParts(prev);
+      const target = next[partIdx]?.lines?.[lineIdx]?.chords?.[chordIdx];
+      if (!target) return prev;
+
+      // não deixa negativo
+      const newPos = Math.max(0, Number(target.pos ?? 0) + delta);
+      target.pos = newPos;
+
+      return next;
+    });
+  }
+
   async function handleSave() {
     const t = toast.loading("Salvando...");
 
     try {
+      // salvar transposição como novo tom + acordes transpostos
       const newBaseParts = transposePartsToNewBase(partsBase, transpose, accidentalPref);
       const newOriginalKey = transposeKey(savedOriginalKey, transpose);
 
@@ -369,15 +421,15 @@ export default function SongViewer({ song }: { song: SongDetail }) {
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={handleSave}
               disabled={!dirty}
-              title={
-                dirty
-                  ? "Salvar (transforma a transposição em tom original)"
-                  : "Nada para salvar"
-              }
+              title={dirty ? "Salvar" : "Nada para salvar"}
             >
               Salvar
             </button>
           </div>
+        </div>
+
+        <div className="mt-3 text-xs opacity-60">
+          Dica: use ◀ ▶ em cima do acorde para ajustar a posição sem mexer no texto importado.
         </div>
       </div>
 
@@ -393,34 +445,30 @@ export default function SongViewer({ song }: { song: SongDetail }) {
 
             <div className="space-y-4">
               {part.lines.map((line, lineIdx) => {
-                const transposedTokens = transposeChordTokens(
-                  line.chords ?? [],
+                const tokensBase = line.chords ?? [];
+                const tokensShown = transposeChordTokens(
+                  tokensBase,
                   transpose,
                   accidentalPref
                 );
 
-                const hasLyric = !!String(line.lyric ?? "").trim();
-                const hasChords = (transposedTokens?.length ?? 0) > 0;
-
                 return (
                   <div key={lineIdx} className="rounded-lg border p-3">
-                    {/* ✅ overlay clicável */}
-                    <ChordOverlayClickable
+                    <ChordOverlayEditable
                       lyric={line.lyric ?? ""}
-                      tokens={transposedTokens}
-                      onChordClick={(tokenIndex, chordShown) =>
+                      tokensShown={tokensShown}
+                      tokensBase={tokensBase}
+                      onOpenPicker={(tokenIndex, chordShown) =>
                         openPickerFromOverlay(partIdx, lineIdx, tokenIndex, chordShown)
+                      }
+                      onMovePos={(tokenIndex, delta) =>
+                        moveChordPos(partIdx, lineIdx, tokenIndex, delta)
                       }
                     />
 
-                    {/* ✅ Se for linha instrumental (sem letra), não renderiza linha vazia */}
-                    {hasLyric ? (
-                      <div className="whitespace-pre font-mono text-sm leading-6">
-                        {line.lyric ?? ""}
-                      </div>
-                    ) : hasChords ? (
-                      <div className="text-xs opacity-60">(instrumental)</div>
-                    ) : null}
+                    <div className="whitespace-pre font-mono text-sm leading-6">
+                      {line.lyric ?? ""}
+                    </div>
                   </div>
                 );
               })}
