@@ -4,80 +4,73 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
 
+function jsonError(message: string, status = 400) {
+  return NextResponse.json({ success: false, error: message }, { status });
+}
+
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const songId = String(searchParams.get("songId") ?? "").trim();
+    const songId = searchParams.get("songId");
 
-    // 🔹 Sem songId: comportamento antigo (lista simples)
+    // lista todas as listas
+    const lists = await prisma.songList.findMany({
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, name: true, createdAt: true, updatedAt: true },
+    });
+
+    // sem songId: retorna simples
     if (!songId) {
-      const lists = await prisma.songList.findMany({
-        orderBy: { createdAt: "desc" },
-      });
-
       return NextResponse.json({ success: true, data: lists });
     }
 
-    // 🔹 Com songId: retorna as listas marcando se a música já está nelas
-    const lists = await prisma.songList.findMany({
-      orderBy: { createdAt: "desc" },
-      include: {
-        items: {
-          where: { songId },
-          select: { id: true }, // existe? então está na lista
-          take: 1,
-        },
-      },
+    // com songId: marca quais listas já tem a música
+    const items = await prisma.songListItem.findMany({
+      where: { songId },
+      select: { id: true, listId: true },
     });
 
-    const mapped = lists.map((l) => ({
-      id: l.id,
-      name: l.name,
-      createdAt: l.createdAt,
-      updatedAt: l.updatedAt,
-      inList: (l.items?.length ?? 0) > 0,
-      itemId: l.items?.[0]?.id ?? null,
-    }));
+    const map = new Map<string, { itemId: string }>();
+    for (const it of items) map.set(it.listId, { itemId: it.id });
 
-    return NextResponse.json({ success: true, data: mapped });
+    const enriched = lists.map((l) => {
+      const hit = map.get(l.id);
+      return {
+        ...l,
+        inList: !!hit,
+        itemId: hit?.itemId ?? null,
+      };
+    });
+
+    return NextResponse.json({ success: true, data: enriched });
   } catch (error) {
-    console.error("GET /api/song-lists error:", error);
-    return NextResponse.json(
-      { success: false, error: "Erro ao listar listas" },
-      { status: 500 }
-    );
+    console.error("Error listing song lists:", error);
+    return jsonError("Erro ao listar listas", 500);
   }
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => null);
-    const name = String(body?.name ?? "").trim();
+    const name = typeof body?.name === "string" ? body.name.trim().replace(/\s+/g, " ") : "";
 
-    if (!name) {
-      return NextResponse.json(
-        { success: false, error: "Nome da lista é obrigatório" },
-        { status: 400 }
-      );
-    }
+    if (!name) return jsonError("name é obrigatório", 400);
 
+    // cria
     const created = await prisma.songList.create({
       data: { name },
+      select: { id: true, name: true, createdAt: true, updatedAt: true },
     });
 
     return NextResponse.json({ success: true, data: created });
   } catch (error: any) {
-    if (error?.code === "P2002") {
-      return NextResponse.json(
-        { success: false, error: "Já existe uma lista com esse nome" },
-        { status: 409 }
-      );
+    // nome único
+    const msg = String(error?.message ?? "");
+    if (msg.toLowerCase().includes("unique")) {
+      return jsonError("Já existe uma lista com esse nome", 409);
     }
 
-    console.error("POST /api/song-lists error:", error);
-    return NextResponse.json(
-      { success: false, error: "Erro ao criar lista" },
-      { status: 500 }
-    );
+    console.error("Error creating song list:", error);
+    return jsonError("Erro ao criar lista", 500);
   }
 }
