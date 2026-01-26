@@ -17,7 +17,7 @@ type SongChordToken = { chord: string; pos: number };
 type SongLine = { lyric: string; chords: SongChordToken[] };
 type SongPart = { type: string; title?: string | null; lines: SongLine[] };
 
-const KEY_OPTIONS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"] as const;
+const KEY_OPTIONS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
 
 function normKey(k?: string | null) {
   return String(k ?? "").trim().toUpperCase();
@@ -110,7 +110,6 @@ function ChordOverlayClickable({
 
   const safeLen = Math.max(0, maxNeeded);
 
-  // monta a string overlay só para calcular "lacunas" e limites
   const arr = Array(safeLen).fill(" ");
   for (const c of tokens) {
     const chord = String(c.chord ?? "");
@@ -121,7 +120,6 @@ function ChordOverlayClickable({
   }
   const overlay = arr.join("");
 
-  // construir segmentos: espaços + acordes
   type Segment =
     | { type: "space"; text: string }
     | { type: "chord"; text: string; tokenIndex: number };
@@ -179,43 +177,40 @@ function ChordOverlayClickable({
 export default function SongViewer({ song }: { song: SongDetail }) {
   const router = useRouter();
 
-  // transposição VISUAL (não salva sozinha)
   const [transpose, setTranspose] = useState(0);
-
-  // preferência padrão: sustenidos
   const accidentalPref: AccidentalPref = "sharp";
 
-  // tom salvo no banco
   const [savedOriginalKey, setSavedOriginalKey] = useState(song.originalKey);
 
-  // base editável (sempre SEM a transposição visual aplicada)
   const [partsBase, setPartsBase] = useState<SongPart[]>(
     () => deepCloneParts(song.content?.parts ?? [])
   );
 
-  // snapshot pra detectar dirty
   const [snapshot, setSnapshot] = useState(() =>
     JSON.stringify({ parts: song.content?.parts ?? [], originalKey: song.originalKey })
   );
 
   const dirty = useMemo(() => {
     const now = JSON.stringify({ parts: partsBase, originalKey: savedOriginalKey, transpose });
-    // consideramos transpose como “pendente” porque você quer salvar como tom final
     return now !== JSON.stringify({ ...JSON.parse(snapshot), transpose: 0 });
   }, [partsBase, savedOriginalKey, transpose, snapshot]);
 
-  // chord picker state
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selected, setSelected] = useState<{
     partIdx: number;
     lineIdx: number;
-    chordIdx: number; // índice na lista transposta (posição no array)
-    displayChord: string; // acorde já transposto (o que o usuário vê)
+    chordIdx: number;
+    displayChord: string;
   } | null>(null);
 
   const parts = useMemo(() => partsBase ?? [], [partsBase]);
 
-  function openPickerFromOverlay(partIdx: number, lineIdx: number, tokenIndex: number, chordShown: string) {
+  function openPickerFromOverlay(
+    partIdx: number,
+    lineIdx: number,
+    tokenIndex: number,
+    chordShown: string
+  ) {
     setSelected({ partIdx, lineIdx, chordIdx: tokenIndex, displayChord: chordShown });
     setPickerOpen(true);
   }
@@ -223,7 +218,6 @@ export default function SongViewer({ song }: { song: SongDetail }) {
   function applyPickedChord(newChordShown: string) {
     if (!selected) return;
 
-    // converter acorde escolhido (na view transposta) de volta para a base
     const newChordBase =
       transpose !== 0
         ? transposeChord(newChordShown, -transpose, accidentalPref)
@@ -231,12 +225,9 @@ export default function SongViewer({ song }: { song: SongDetail }) {
 
     setPartsBase((prev) => {
       const next = deepCloneParts(prev);
-
-      // ⚠️ aqui precisamos alterar o "chordIdx" correspondente no BASE.
-      // Como o overlay trabalha no array transposto (mesmo tamanho), chordIdx é o mesmo índice do array base.
-      const target = next[selected.partIdx]?.lines?.[selected.lineIdx]?.chords?.[selected.chordIdx];
+      const target =
+        next[selected.partIdx]?.lines?.[selected.lineIdx]?.chords?.[selected.chordIdx];
       if (target) target.chord = newChordBase;
-
       return next;
     });
 
@@ -248,7 +239,6 @@ export default function SongViewer({ song }: { song: SongDetail }) {
     const t = toast.loading("Salvando...");
 
     try {
-      // salvar transposição como novo tom + acordes transpostos
       const newBaseParts = transposePartsToNewBase(partsBase, transpose, accidentalPref);
       const newOriginalKey = transposeKey(savedOriginalKey, transpose);
 
@@ -409,9 +399,12 @@ export default function SongViewer({ song }: { song: SongDetail }) {
                   accidentalPref
                 );
 
+                const hasLyric = !!String(line.lyric ?? "").trim();
+                const hasChords = (transposedTokens?.length ?? 0) > 0;
+
                 return (
                   <div key={lineIdx} className="rounded-lg border p-3">
-                    {/* ✅ overlay agora é clicável */}
+                    {/* ✅ overlay clicável */}
                     <ChordOverlayClickable
                       lyric={line.lyric ?? ""}
                       tokens={transposedTokens}
@@ -420,11 +413,14 @@ export default function SongViewer({ song }: { song: SongDetail }) {
                       }
                     />
 
-                    <div className="whitespace-pre font-mono text-sm leading-6">
-                      {line.lyric ?? ""}
-                    </div>
-
-                    {/* ❌ removido: linha de botões embaixo */}
+                    {/* ✅ Se for linha instrumental (sem letra), não renderiza linha vazia */}
+                    {hasLyric ? (
+                      <div className="whitespace-pre font-mono text-sm leading-6">
+                        {line.lyric ?? ""}
+                      </div>
+                    ) : hasChords ? (
+                      <div className="text-xs opacity-60">(instrumental)</div>
+                    ) : null}
                   </div>
                 );
               })}
