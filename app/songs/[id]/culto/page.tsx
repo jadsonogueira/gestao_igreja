@@ -57,9 +57,6 @@ function padRight(s: string, len: number) {
 
 /**
  * ✅ Quebra por COLUNAS (cols) e mantém cifra+letra sempre alinhadas.
- * - gera overlay de acordes
- * - pad dos dois (overlay e lyric) para o mesmo tamanho
- * - fatia em blocos de cols
  */
 function wrapAligned(
   lyric: string,
@@ -78,7 +75,6 @@ function wrapAligned(
     const chordSeg = overlayPad.slice(i, i + safeCols);
     const lyricSeg = lyricPad.slice(i, i + safeCols);
 
-    // Se o segmento for totalmente vazio (ex.: só espaços), não renderiza
     if (!rtrim(chordSeg) && !rtrim(lyricSeg)) continue;
 
     out.push({
@@ -108,18 +104,16 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
   const [transpose, setTranspose] = useState(0);
   const accidentalPref: AccidentalPref = "sharp";
 
-  // ✅ modo culto: controles essenciais
   const [showChords, setShowChords] = useState(true);
 
-  // IMPORTANTÍSSIMO: um único fontSize para cifra + letra (mantém “coluna”)
-  const [fontSize, setFontSize] = useState(20); // px (padrão menor e mais banana)
-  const [lineHeight, setLineHeight] = useState(1.35); // “linhas” (mais apertado)
-  const [cols, setCols] = useState(43); // “colunas”
+  // ✅ fonte padrão menor
+  // IMPORTANTÍSSIMO: UM fontSize para cifra+letra (não quebra o alinhamento)
+  const [fontSize, setFontSize] = useState(18); // era 20
+  const [lineHeight, setLineHeight] = useState(1.32);
+  const [cols, setCols] = useState(43);
 
-  // ✅ painel escondido
   const [settingsOpen, setSettingsOpen] = useState(false);
 
-  // ✅ wake lock
   const [keepAwake, setKeepAwake] = useState(false);
   const wakeLockRef = useRef<any | null>(null);
 
@@ -174,7 +168,6 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
 
   return (
     <main className="mx-auto max-w-3xl px-3 py-3">
-      {/* topo minimalista */}
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="min-w-0">
           <a className="text-sm opacity-70 underline" href={`/songs/${params.id}`}>
@@ -232,7 +225,6 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
         </div>
       </div>
 
-      {/* painel (abre/fecha) */}
       {settingsOpen ? (
         <div className="mb-3 rounded-xl border p-3 bg-white/95 dark:bg-black/95">
           <div className="flex flex-wrap gap-2 items-center">
@@ -252,7 +244,7 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
               {keepAwake ? "Tela ✓" : "Tela"}
             </button>
 
-            {/* fonte (UM controle só: mantém coluna) */}
+            {/* fonte (um controle só) */}
             <button
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={() => setFontSize((v) => Math.max(14, v - 2))}
@@ -268,7 +260,7 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
               A+
             </button>
 
-            {/* linhas (line-height) */}
+            {/* linhas */}
             <button
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={() => setLineHeight((v) => Math.max(1.1, Number((v - 0.05).toFixed(2))))}
@@ -284,7 +276,7 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
               ⇡
             </button>
 
-            {/* colunas (wrap real) */}
+            {/* colunas */}
             <button
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={() => setCols((v) => Math.max(20, v - 2))}
@@ -325,7 +317,6 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
         </div>
       ) : null}
 
-      {/* ✅ banana-like: sem “cards” grandes, bem compacto */}
       <div className="space-y-5">
         {parts.map((part, partIdx) => (
           <section key={`${part.type}-${partIdx}`} className="space-y-2">
@@ -342,10 +333,7 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
                 const shown = transposeChordTokens(base, transpose, accidentalPref);
 
                 const overlay = showChords ? buildChordOverlay(line.lyric ?? "", shown) : "";
-
-                const wrapped = showChords
-                  ? wrapAligned(line.lyric ?? "", overlay, cols)
-                  : wrapAligned(line.lyric ?? "", "", cols);
+                const wrapped = wrapAligned(line.lyric ?? "", overlay, cols);
 
                 return (
                   <div key={lineIdx}>
@@ -353,8 +341,12 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
                       <div key={`${lineIdx}-${i}`}>
                         {showChords && seg.chordLine ? (
                           <div
-                            className="whitespace-pre font-mono opacity-90"
-                            style={{ fontSize, lineHeight }}
+                            className="whitespace-pre font-mono font-semibold"
+                            style={{
+                              fontSize,
+                              lineHeight,
+                              color: "#2563EB", // azul (Tailwind: blue-600)
+                            }}
                           >
                             {seg.chordLine}
                           </div>
@@ -369,7 +361,6 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
                       </div>
                     ))}
 
-                    {/* pequeno espaçamento entre linhas musicais */}
                     <div style={{ height: 6 }} />
                   </div>
                 );
