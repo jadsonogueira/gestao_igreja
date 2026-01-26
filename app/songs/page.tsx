@@ -63,12 +63,19 @@ export default function SongsPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link
             className="border rounded px-3 py-2 text-sm hover:bg-gray-50 transition"
             href="/song-lists"
           >
             Listas
+          </Link>
+
+          <Link
+            className="border rounded px-3 py-2 text-sm hover:bg-gray-50 transition"
+            href="/songs/import"
+          >
+            Importar
           </Link>
 
           <Link
@@ -87,7 +94,9 @@ export default function SongsPage() {
 
       {!loading && !items.length ? (
         <div className="border rounded p-4 text-sm opacity-70">
-          Nenhuma cifra ainda. Clique em <span className="font-medium">Nova cifra</span> para começar.
+          Nenhuma cifra ainda. Clique em{" "}
+          <span className="font-medium">Nova cifra</span> ou{" "}
+          <span className="font-medium">Importar</span> para começar.
         </div>
       ) : null}
 
