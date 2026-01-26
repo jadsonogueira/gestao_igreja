@@ -10,7 +10,7 @@ type Params = {
   };
 };
 
-const KEY_OPTIONS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"] as const;
+const KEY_OPTIONS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
 
 function normalizeKey(k: any): string | null {
   if (typeof k !== "string") return null;
@@ -127,6 +127,38 @@ export async function PATCH(request: Request, { params }: Params) {
     console.error("Error updating song:", error);
     return NextResponse.json(
       { success: false, error: "Erro ao salvar cifra" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(_request: Request, { params }: Params) {
+  try {
+    const id = params.id;
+
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: "ID da cifra não informado" },
+        { status: 400 }
+      );
+    }
+
+    // checa se existe antes (pra dar 404 bonitinho)
+    const existing = await prisma.song.findUnique({ where: { id }, select: { id: true } });
+    if (!existing) {
+      return NextResponse.json(
+        { success: false, error: "Cifra não encontrada" },
+        { status: 404 }
+      );
+    }
+
+    await prisma.song.delete({ where: { id } });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting song:", error);
+    return NextResponse.json(
+      { success: false, error: "Erro ao excluir cifra" },
       { status: 500 }
     );
   }
