@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
 
 type SongList = {
@@ -20,6 +20,8 @@ export default function AddToListButton({
   const [open, setOpen] = useState(false);
   const [lists, setLists] = useState<SongList[]>([]);
   const [loading, setLoading] = useState(false);
+
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   async function loadLists() {
     setLoading(true);
@@ -45,6 +47,27 @@ export default function AddToListButton({
   useEffect(() => {
     if (open) loadLists();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  // ✅ fecha ao clicar fora (mobile friendly)
+  useEffect(() => {
+    if (!open) return;
+
+    function onDown(e: MouseEvent | TouchEvent) {
+      const el = rootRef.current;
+      if (!el) return;
+      const target = e.target as Node | null;
+      if (target && el.contains(target)) return;
+      setOpen(false);
+    }
+
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+    };
   }, [open]);
 
   async function addToList(listId: string) {
@@ -95,25 +118,36 @@ export default function AddToListButton({
   }
 
   const buttonClass = useMemo(() => {
+    // ✅ estilo "chip" (banana-cifras)
     return compact
-      ? "border rounded px-2 py-1 text-xs"
-      : "border rounded px-3 py-2 text-sm";
+      ? "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-black/5 dark:hover:bg-white/5"
+      : "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5";
   }, [compact]);
 
   return (
-    <div className="relative inline-block">
+    <div ref={rootRef} className="relative inline-block">
       <button
         className={buttonClass}
         onClick={() => setOpen((v) => !v)}
         title="Adicionar/remover esta cifra em listas"
+        type="button"
       >
-        {loading && open ? "..." : "+ Lista"}
+        <span className="font-mono leading-none">+</span>
+        <span>{loading && open ? "..." : "Lista"}</span>
       </button>
 
       {open ? (
-        <div className="absolute right-0 z-50 mt-2 w-72 rounded-lg border bg-white p-2 shadow-md dark:bg-black">
-          <div className="mb-2 text-xs font-semibold opacity-70">
-            Listas (✅ = já está)
+        <div className="absolute right-0 z-50 mt-2 w-64 max-w-[85vw] rounded-lg border bg-white p-2 shadow-md dark:bg-black">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="text-xs font-semibold opacity-70">Listas</div>
+            <button
+              type="button"
+              className="text-xs underline opacity-60 hover:opacity-100"
+              onClick={() => setOpen(false)}
+              title="Fechar"
+            >
+              fechar
+            </button>
           </div>
 
           {loading ? (
@@ -140,11 +174,12 @@ export default function AddToListButton({
                   className="w-full rounded-md border px-2 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/5"
                   onClick={() => toggleList(l)}
                   title={l.inList ? "Clique para remover" : "Clique para adicionar"}
+                  type="button"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span>{l.name}</span>
-                    <span className="text-xs opacity-70">
-                      {l.inList ? "✅ remover" : "adicionar"}
+                    <span className="truncate">{l.name}</span>
+                    <span className={`text-xs ${l.inList ? "opacity-90" : "opacity-60"}`}>
+                      {l.inList ? "✅" : "+"}
                     </span>
                   </div>
                 </button>
@@ -152,16 +187,10 @@ export default function AddToListButton({
             </div>
           ) : null}
 
-          <div className="mt-2 flex justify-end gap-2">
-            <a className="text-xs underline opacity-70" href="/song-lists">
+          <div className="mt-2">
+            <a className="text-xs underline opacity-70 hover:opacity-100" href="/song-lists">
               Gerenciar listas
             </a>
-            <button
-              className="text-xs underline opacity-70"
-              onClick={() => setOpen(false)}
-            >
-              Fechar
-            </button>
           </div>
         </div>
       ) : null}
