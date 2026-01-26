@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import AddToListButton from "./AddToListButton";
 
@@ -30,6 +30,8 @@ export default function SongsPage() {
   const [items, setItems] = useState<SongItem[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const [search, setSearch] = useState("");
+
   async function load() {
     setLoading(true);
     try {
@@ -48,9 +50,36 @@ export default function SongsPage() {
     }
   }
 
-  useEffect(() => {
-    load();
-  }, []);
+  async function handleDelete(songId: string, title: string) {
+    const ok = confirm(`Excluir a cifra "${title}"? Essa ação não pode ser desfeita.`);
+    if (!ok) return;
+
+    const t = toast.loading("Excluindo...");
+
+    try {
+      const res = await fetch(`/api/songs/${songId}`, { method: "DELETE" });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || "Erro ao excluir cifra");
+      }
+
+      setItems((prev) => prev.filter((s) => s.id !== songId));
+      toast.success("Cifra excluída.", { id: t });
+    } catch (e: any) {
+      toast.error(e?.message || "Erro ao excluir", { id: t });
+    }
+  }
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return items;
+
+    return items.filter((s) => {
+      const hay = `${s.title} ${s.artist ?? ""} ${s.originalKey} ${(s.tags ?? []).join(" ")}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [items, search]);
 
   return (
     <main className="mx-auto max-w-3xl p-4 space-y-4">
@@ -78,12 +107,20 @@ export default function SongsPage() {
             Importar
           </Link>
 
-          <Link
-            className="rounded px-3 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 transition"
-            href="/songs/new"
-          >
-            Nova cifra
-          </Link>
+          {/* ✅ removido: Nova cifra */}
+        </div>
+      </div>
+
+      {/* ✅ Buscar */}
+      <div className="border rounded p-3">
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar por título, artista, tom ou tag..."
+          className="w-full border rounded px-3 py-2 text-sm"
+        />
+        <div className="mt-1 text-xs opacity-60">
+          Mostrando {filtered.length} de {items.length}
         </div>
       </div>
 
@@ -94,15 +131,19 @@ export default function SongsPage() {
 
       {!loading && !items.length ? (
         <div className="border rounded p-4 text-sm opacity-70">
-          Nenhuma cifra ainda. Clique em{" "}
-          <span className="font-medium">Nova cifra</span> ou{" "}
-          <span className="font-medium">Importar</span> para começar.
+          Nenhuma cifra ainda. Clique em <span className="font-medium">Importar</span> para começar.
+        </div>
+      ) : null}
+
+      {!loading && items.length > 0 && filtered.length === 0 ? (
+        <div className="border rounded p-4 text-sm opacity-70">
+          Nenhuma cifra encontrada para sua busca.
         </div>
       ) : null}
 
       {/* List */}
       <div className="space-y-2">
-        {items.map((s) => (
+        {filtered.map((s) => (
           <div key={s.id} className="border rounded p-3 hover:bg-gray-50 transition">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -128,8 +169,19 @@ export default function SongsPage() {
                 ) : null}
               </div>
 
-              {/* ✅ adicionar à lista direto na listagem */}
-              <AddToListButton songId={s.id} compact />
+              {/* ✅ Coluna direita: +Lista e Excluir (Excluir abaixo) */}
+              <div className="flex flex-col items-end gap-2">
+                <AddToListButton songId={s.id} compact />
+
+                <button
+                  type="button"
+                  onClick={() => handleDelete(s.id, s.title)}
+                  className="border rounded px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition"
+                  title="Excluir cifra"
+                >
+                  Excluir
+                </button>
+              </div>
             </div>
           </div>
         ))}
