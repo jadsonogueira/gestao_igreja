@@ -14,6 +14,7 @@ import {
   Menu,
   X,
   Church,
+  Music, // ✅ NOVO
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -21,6 +22,10 @@ const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/membros', label: 'Membros', icon: Users },
   { href: '/grupos', label: 'Grupos', icon: MessageSquare },
+
+  // ✅ NOVO: Cifras
+  { href: '/songs', label: 'Cifras', icon: Music },
+
   { href: '/envios', label: 'Envios', icon: Send },
   { href: '/escala', label: 'Escala', icon: CalendarClock },
   { href: '/historico', label: 'Histórico', icon: History },
@@ -47,7 +52,12 @@ export default function Navbar() {
             <div className="hidden md:flex items-center gap-1">
               {navItems?.map((item) => {
                 const Icon = item?.icon;
-                const isActive = pathname === item?.href;
+
+                // ✅ Ativo também para subrotas (ex: /songs/new, /songs/123)
+                const isActive =
+                  pathname === item?.href ||
+                  (item?.href !== '/' && pathname?.startsWith(`${item?.href}/`));
+
                 return (
                   <Link
                     key={item?.href}
@@ -92,7 +102,12 @@ export default function Navbar() {
             <div className="p-4 space-y-2">
               {navItems?.map((item) => {
                 const Icon = item?.icon;
-                const isActive = pathname === item?.href;
+
+                // ✅ mesma regra aqui
+                const isActive =
+                  pathname === item?.href ||
+                  (item?.href !== '/' && pathname?.startsWith(`${item?.href}/`));
+
                 return (
                   <Link
                     key={item?.href}
