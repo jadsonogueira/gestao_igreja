@@ -112,9 +112,9 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
    * - 1 fontSize único pra cifra+letra (alinhamento)
    * - fonte -4 pontos (ficou 10px)
    */
-  const [fontSize, setFontSize] = useState(10);
-  const [lineHeight, setLineHeight] = useState(1.12);
-  const [cols, setCols] = useState(40);
+  const [fontSize, setFontSize] = useState(12);
+  const [lineHeight, setLineHeight] = useState(1.05);
+  const [cols, setCols] = useState(46);
 
   // ✅ topo escondido por padrão
   const [settingsOpen, setSettingsOpen] = useState(false);
