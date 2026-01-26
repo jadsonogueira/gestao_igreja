@@ -20,31 +20,13 @@ type SongDetail = {
   updatedAt: string;
 };
 
-type ListItemFromApi = {
-  id: string; // id do songListItem
-  order: number;
-  song: {
-    id: string;
-    title: string;
-    artist: string | null;
-    originalKey: string;
-    tags: string[];
-    updatedAt: string;
-  };
+type NavMini = { id: string; title: string };
+type NavState = {
+  listId: string;
+  listName?: string;
+  prev?: NavMini | null;
+  next?: NavMini | null;
 };
-
-type SongListApiResponse =
-  | {
-      success: true;
-      data: {
-        id: string;
-        name: string;
-        items: ListItemFromApi[];
-      };
-    }
-  | { success: false; error?: string };
-
-type ListNavItem = { id: string; title: string };
 
 function partLabel(p: SongPart) {
   const t = (p.title ?? "").trim();
@@ -95,7 +77,6 @@ function wrapAligned(
   const overlayPad = padRight(overlay, maxLen);
 
   const out: Array<{ chordLine: string; lyricLine: string }> = [];
-
   const safeCols = Math.max(10, Math.min(200, Math.floor(cols || 40)));
 
   for (let i = 0; i < maxLen; i += safeCols) {
@@ -126,6 +107,7 @@ async function requestWakeLock(): Promise<any | null> {
 
 export default function SongCultoPage({ params }: { params: { id: string } }) {
   const searchParams = useSearchParams();
+  const listIdFromUrl = (searchParams?.get("listId") ?? "").trim();
 
   const [song, setSong] = useState<SongDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -136,7 +118,7 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
   const [showChords, setShowChords] = useState(true);
 
   /**
-   * ✅ PADRÕES PARA BATER 1:1 COM O EDITOR
+   * ✅ PADRÕES
    */
   const [fontSize, setFontSize] = useState(12);
   const [lineHeight, setLineHeight] = useState(1.05);
@@ -149,13 +131,9 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
   const wakeLockRef = useRef<any | null>(null);
 
   // ✅ navegação por lista (opcional)
-  const [listId, setListId] = useState<string | null>(null);
-  const [listName, setListName] = useState<string | null>(null);
-  const [listItems, setListItems] = useState<ListNavItem[] | null>(null);
+  const [nav, setNav] = useState<NavState | null>(null);
 
-  const currentSongId = params.id;
-
-  async function loadSong() {
+  async function load() {
     setLoading(true);
     const res = await fetch(`/api/songs/${params.id}`, { cache: "no-store" });
     const json = await res.json();
@@ -164,13 +142,62 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
     setLoading(false);
   }
 
+  async function loadNav(listId: string, currentSongId: string) {
+    try {
+      const res = await fetch(`/api/song-lists/${encodeURIComponent(listId)}`, {
+        cache: "no-store",
+      });
+      const json = await res.json();
+      if (!res.ok || !json?.success) throw new Error(json?.error || "Erro ao buscar lista");
+
+      const items = (json?.data?.items ?? []) as Array<{
+        song: { id: string; title: string };
+        order?: number;
+      }>;
+
+      const idx = items.findIndex((it) => it?.song?.id === currentSongId);
+      if (idx === -1) {
+        setNav({
+          listId,
+          listName: json?.data?.name ?? undefined,
+          prev: null,
+          next: null,
+        });
+        return;
+      }
+
+      const prevItem = idx > 0 ? items[idx - 1]?.song : null;
+      const nextItem = idx < items.length - 1 ? items[idx + 1]?.song : null;
+
+      setNav({
+        listId,
+        listName: json?.data?.name ?? undefined,
+        prev: prevItem ? { id: prevItem.id, title: prevItem.title } : null,
+        next: nextItem ? { id: nextItem.id, title: nextItem.title } : null,
+      });
+    } catch (e: any) {
+      // não trava a página por causa de navegação
+      setNav(null);
+    }
+  }
+
   useEffect(() => {
-    loadSong().catch((e: any) => {
+    load().catch((e: any) => {
       toast.error(e?.message || "Erro ao carregar");
       setLoading(false);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
+
+  // quando tiver listId, carrega nav (e atualiza quando trocar de música)
+  useEffect(() => {
+    if (!listIdFromUrl) {
+      setNav(null);
+      return;
+    }
+    loadNav(listIdFromUrl, params.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listIdFromUrl, params.id]);
 
   useEffect(() => {
     let mounted = true;
@@ -202,82 +229,23 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
     };
   }, [keepAwake]);
 
-  // ✅ lê listId da URL e carrega itens da lista pelo seu endpoint real
-  useEffect(() => {
-    const qListId = searchParams.get("listId");
-    const nextListId = qListId ? String(qListId) : null;
-    setListId(nextListId);
-
-    async function loadList(navListId: string) {
-      try {
-        const res = await fetch(`/api/song-lists/${encodeURIComponent(navListId)}`, {
-          cache: "no-store",
-        });
-        const json = (await res.json().catch(() => null)) as SongListApiResponse | null;
-
-        if (!res.ok || !json || (json as any)?.success !== true) {
-          setListName(null);
-          setListItems(null);
-          return;
-        }
-
-        if (!json.success) {
-          setListName(null);
-          setListItems(null);
-          return;
-        }
-
-        const items = Array.isArray(json.data?.items) ? json.data.items : [];
-
-        setListName(json.data?.name ?? null);
-        setListItems(
-          items
-            .map((it) => ({
-              id: String(it?.song?.id ?? ""),
-              title: String(it?.song?.title ?? ""),
-            }))
-            .filter((it) => it.id && it.title)
-        );
-      } catch {
-        setListName(null);
-        setListItems(null);
-      }
-    }
-
-    if (nextListId) loadList(nextListId);
-    else {
-      setListName(null);
-      setListItems(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
-
   const parts = useMemo(() => song?.content?.parts ?? [], [song]);
 
-  const nav = useMemo(() => {
-    if (!listId || !listItems?.length) return null;
+  const hasFooterNav = !!(nav?.listId && (nav.prev || nav.next));
 
-    const idx = listItems.findIndex((it) => it.id === currentSongId);
-    if (idx < 0) return null;
+  function cultoHref(songId: string) {
+    const base = `/songs/${songId}/culto`;
+    if (!nav?.listId) return base;
+    return `${base}?listId=${encodeURIComponent(nav.listId)}`;
+  }
 
-    const prev = idx > 0 ? listItems[idx - 1] : null;
-    const next = idx < listItems.length - 1 ? listItems[idx + 1] : null;
-
-    const makeCultoHref = (songId: string) =>
-      `/songs/${songId}/culto?listId=${encodeURIComponent(listId)}`;
-
-    return {
-      idx,
-      total: listItems.length,
-      prev: prev ? { ...prev, href: makeCultoHref(prev.id) } : null,
-      next: next ? { ...next, href: makeCultoHref(next.id) } : null,
-      backHref: `/song-lists/${encodeURIComponent(listId)}`,
-      listName: listName ?? null,
-    };
-  }, [listId, listItems, currentSongId, listName]);
+  function backToListHref() {
+    if (!nav?.listId) return "/song-lists";
+    return `/song-lists/${encodeURIComponent(nav.listId)}`;
+  }
 
   return (
-    <main className="mx-auto max-w-3xl px-3 py-3 pb-24">
+    <main className={`mx-auto max-w-3xl px-3 py-3 ${hasFooterNav ? "pb-24" : ""}`}>
       {/* ✅ Botão flutuante */}
       <button
         className="fixed right-3 top-3 z-20 rounded-full border bg-white/95 dark:bg-black/90 w-11 h-11 flex items-center justify-center shadow-sm"
@@ -314,13 +282,6 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
                   </>
                 ) : null}
               </div>
-
-              {nav?.listName ? (
-                <div className="mt-1 text-xs opacity-70">
-                  Lista: <span className="font-medium">{nav.listName}</span> •{" "}
-                  {nav.idx + 1}/{nav.total}
-                </div>
-              ) : null}
             </div>
 
             <button
@@ -473,7 +434,10 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
                           </div>
                         ) : null}
 
-                        <div className="whitespace-pre font-mono" style={{ fontSize, lineHeight }}>
+                        <div
+                          className="whitespace-pre font-mono"
+                          style={{ fontSize, lineHeight }}
+                        >
                           {seg.lyricLine}
                         </div>
                       </div>
@@ -492,62 +456,66 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
         ID: <span className="font-mono">{song?.id ?? params.id}</span>
       </div>
 
-      {/* ✅ RODAPÉ: navegação entre músicas da lista */}
-      {nav ? (
-        <div
-          className="fixed bottom-0 left-0 right-0 z-20 border-t bg-white/95 dark:bg-black/90"
-          style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 10px)" }}
-        >
-          <div className="mx-auto max-w-3xl px-3 pt-2">
+      {/* ✅ Rodapé de navegação (quando veio de uma lista) */}
+      {nav?.listId ? (
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-white/95 dark:bg-black/90">
+          <div className="mx-auto max-w-3xl px-3 py-3">
             <div className="grid grid-cols-3 items-center gap-2">
-              {/* anterior */}
-              {nav.prev ? (
-                <a
-                  href={nav.prev.href}
-                  className="rounded-lg border px-2 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/5 transition"
-                  title={`Anterior: ${nav.prev.title}`}
-                >
-                  <div className="text-xs opacity-70">←</div>
-                  <div className="truncate font-medium">{nav.prev.title}</div>
-                </a>
-              ) : (
-                <div className="rounded-lg border px-2 py-2 text-sm opacity-40">
-                  <div className="text-xs">←</div>
-                  <div className="truncate">—</div>
-                </div>
-              )}
+              {/* Anterior */}
+              <div className="min-w-0">
+                {nav.prev ? (
+                  <a
+                    href={cultoHref(nav.prev.id)}
+                    className="block rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5"
+                    title={`Ir para: ${nav.prev.title}`}
+                  >
+                    <div className="text-[11px] opacity-60">← Anterior</div>
+                    <div className="truncate font-medium">{nav.prev.title}</div>
+                  </a>
+                ) : (
+                  <div className="rounded-lg border px-3 py-2 text-sm opacity-40">
+                    <div className="text-[11px]">← Anterior</div>
+                    <div className="truncate">—</div>
+                  </div>
+                )}
+              </div>
 
-              {/* voltar à lista */}
-              <a
-                href={nav.backHref}
-                className="rounded-lg border px-2 py-2 text-center text-sm hover:bg-black/5 dark:hover:bg-white/5 transition"
-                title="Voltar à lista"
-              >
-                <div className="text-xs opacity-70">{nav.listName ? nav.listName : "Lista"}</div>
-                <div className="font-medium underline underline-offset-2">Voltar à lista</div>
-              </a>
-
-              {/* próxima */}
-              {nav.next ? (
+              {/* Voltar à lista */}
+              <div className="flex justify-center">
                 <a
-                  href={nav.next.href}
-                  className="rounded-lg border px-2 py-2 text-right text-sm hover:bg-black/5 dark:hover:bg-white/5 transition"
-                  title={`Próxima: ${nav.next.title}`}
+                  href={backToListHref()}
+                  className="rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5"
+                  title="Voltar à lista"
                 >
-                  <div className="text-xs opacity-70">→</div>
-                  <div className="truncate font-medium">{nav.next.title}</div>
+                  Voltar à lista
                 </a>
-              ) : (
-                <div className="rounded-lg border px-2 py-2 text-sm opacity-40 text-right">
-                  <div className="text-xs">→</div>
-                  <div className="truncate">—</div>
-                </div>
-              )}
+              </div>
+
+              {/* Próxima */}
+              <div className="min-w-0">
+                {nav.next ? (
+                  <a
+                    href={cultoHref(nav.next.id)}
+                    className="block rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5 text-right"
+                    title={`Ir para: ${nav.next.title}`}
+                  >
+                    <div className="text-[11px] opacity-60">Próxima →</div>
+                    <div className="truncate font-medium">{nav.next.title}</div>
+                  </a>
+                ) : (
+                  <div className="rounded-lg border px-3 py-2 text-sm opacity-40 text-right">
+                    <div className="text-[11px]">Próxima →</div>
+                    <div className="truncate">—</div>
+                  </div>
+                )}
+              </div>
             </div>
 
-            <div className="mt-1 text-[11px] opacity-60 text-center">
-              {nav.idx + 1}/{nav.total}
-            </div>
+            {nav.listName ? (
+              <div className="mt-2 text-[11px] opacity-60 truncate">
+                Lista: <span className="font-medium">{nav.listName}</span>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
