@@ -9,6 +9,14 @@ function toInt(v: string | null, fallback: number) {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
+function normalizeTags(tags: unknown): string[] {
+  if (!Array.isArray(tags)) return [];
+  return tags
+    .map((t) => (typeof t === "string" ? t.trim() : ""))
+    .filter(Boolean)
+    .map((t) => t.replace(/\s+/g, " "));
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -73,6 +81,68 @@ export async function GET(request: Request) {
     console.error("Error listing songs:", error);
     return NextResponse.json(
       { success: false, error: "Erro ao listar cifras" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json().catch(() => ({}));
+
+    const title = typeof body?.title === "string" ? body.title.trim() : "";
+    const artist =
+      typeof body?.artist === "string" ? body.artist.trim() : body?.artist === null ? null : "";
+    const originalKey =
+      typeof body?.originalKey === "string" ? body.originalKey.trim() : "";
+    const tags = normalizeTags(body?.tags);
+
+    if (!title) {
+      return NextResponse.json(
+        { success: false, error: "Título é obrigatório" },
+        { status: 400 }
+      );
+    }
+
+    if (!originalKey) {
+      return NextResponse.json(
+        { success: false, error: "Tom original é obrigatório" },
+        { status: 400 }
+      );
+    }
+
+    const searchIndex = `${title} ${artist ?? ""} ${tags.join(" ")}`.trim().toLowerCase();
+
+    const song = await prisma.song.create({
+      data: {
+        title,
+        artist: artist || null,
+        originalKey,
+        rawText: "",
+        tags,
+        chordsUsed: [],
+        searchIndex,
+        // conteúdo inicial vazio (editor já sabe lidar com isso)
+        content: {
+          parts: [
+            {
+              name: "Geral",
+              lines: [],
+            },
+          ],
+        },
+      },
+      select: { id: true },
+    });
+
+    return NextResponse.json({
+      success: true,
+      data: { id: song.id },
+    });
+  } catch (error) {
+    console.error("Error creating song:", error);
+    return NextResponse.json(
+      { success: false, error: "Erro ao criar cifra" },
       { status: 500 }
     );
   }
