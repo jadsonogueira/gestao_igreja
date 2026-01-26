@@ -10,6 +10,15 @@ type Params = {
   };
 };
 
+const KEY_OPTIONS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"] as const;
+
+function normalizeKey(k: any): string | null {
+  if (typeof k !== "string") return null;
+  const v = k.trim().toUpperCase();
+  if (!v) return null;
+  return (KEY_OPTIONS as readonly string[]).includes(v) ? v : null;
+}
+
 export async function GET(_request: Request, { params }: Params) {
   try {
     const id = params.id;
@@ -73,55 +82,34 @@ export async function PATCH(request: Request, { params }: Params) {
       );
     }
 
-    const dataToUpdate: any = {};
+    const content = (body as any).content;
+    const originalKeyRaw = (body as any).originalKey;
 
-    // ✅ content (opcional)
-    if (body.content) {
-      const content = body.content;
-
-      if (!content || typeof content !== "object") {
-        return NextResponse.json(
-          { success: false, error: "Campo 'content' inválido" },
-          { status: 400 }
-        );
-      }
-
-      const parts = (content as any)?.parts;
-      if (!Array.isArray(parts)) {
-        return NextResponse.json(
-          { success: false, error: "content.parts precisa ser um array" },
-          { status: 400 }
-        );
-      }
-
-      dataToUpdate.content = content;
-    }
-
-    // ✅ originalKey (opcional)
-    if (typeof (body as any).originalKey === "string") {
-      const originalKey = (body as any).originalKey.trim().toUpperCase();
-
-      const allowed = new Set(["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]);
-      if (!allowed.has(originalKey)) {
-        return NextResponse.json(
-          { success: false, error: "Tom original inválido" },
-          { status: 400 }
-        );
-      }
-
-      dataToUpdate.originalKey = originalKey;
-    }
-
-    if (Object.keys(dataToUpdate).length === 0) {
+    // valida content
+    if (!content || typeof content !== "object") {
       return NextResponse.json(
-        { success: false, error: "Nada para atualizar" },
+        { success: false, error: "Campo 'content' é obrigatório" },
         { status: 400 }
       );
     }
 
+    const parts = (content as any)?.parts;
+    if (!Array.isArray(parts)) {
+      return NextResponse.json(
+        { success: false, error: "content.parts precisa ser um array" },
+        { status: 400 }
+      );
+    }
+
+    // valida originalKey (se veio)
+    const normalizedKey = normalizeKey(originalKeyRaw);
+
     const updated = await prisma.song.update({
       where: { id },
-      data: dataToUpdate,
+      data: {
+        content,
+        ...(normalizedKey ? { originalKey: normalizedKey } : {}),
+      },
       select: {
         id: true,
         title: true,
