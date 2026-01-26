@@ -31,24 +31,47 @@ export default function SongsPage() {
   const [loading, setLoading] = useState(true);
 
   const [search, setSearch] = useState("");
+  const [pageError, setPageError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
+    setPageError(null);
+
     try {
       const res = await fetch("/api/songs?page=1&limit=50", { cache: "no-store" });
-      const json: SongsResponse = await res.json();
+
+      // ✅ se backend devolver HTML/erro, isso evita crash no res.json()
+      const text = await res.text();
+      let json: SongsResponse | null = null;
+
+      try {
+        json = JSON.parse(text) as SongsResponse;
+      } catch {
+        json = null;
+      }
 
       if (!res.ok || !json?.success) {
-        throw new Error(json?.error || "Erro ao carregar cifras");
+        const msg =
+          json?.error ||
+          `Erro ao carregar cifras (status ${res.status}).`;
+
+        throw new Error(msg);
       }
 
       setItems(json.data?.items ?? []);
     } catch (e: any) {
-      toast.error(e?.message || "Erro ao carregar");
+      const msg = e?.message || "Erro ao carregar";
+      setPageError(msg);
+      toast.error(msg);
+      setItems([]); // evita ficar com lixo anterior
     } finally {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    load(); // ok: load já tem try/catch/finally
+  }, []);
 
   async function handleDelete(songId: string, title: string) {
     const ok = confirm(`Excluir a cifra "${title}"? Essa ação não pode ser desfeita.`);
@@ -58,10 +81,18 @@ export default function SongsPage() {
 
     try {
       const res = await fetch(`/api/songs/${songId}`, { method: "DELETE" });
-      const json = await res.json().catch(() => null);
+
+      // ✅ mesma blindagem (pode vir HTML)
+      const text = await res.text();
+      let json: any = null;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = null;
+      }
 
       if (!res.ok || !json?.success) {
-        throw new Error(json?.error || "Erro ao excluir cifra");
+        throw new Error(json?.error || `Erro ao excluir (status ${res.status})`);
       }
 
       setItems((prev) => prev.filter((s) => s.id !== songId));
@@ -76,7 +107,8 @@ export default function SongsPage() {
     if (!q) return items;
 
     return items.filter((s) => {
-      const hay = `${s.title} ${s.artist ?? ""} ${s.originalKey} ${(s.tags ?? []).join(" ")}`.toLowerCase();
+      const tags = Array.isArray(s.tags) ? s.tags : [];
+      const hay = `${s.title} ${s.artist ?? ""} ${s.originalKey} ${tags.join(" ")}`.toLowerCase();
       return hay.includes(q);
     });
   }, [items, search]);
@@ -106,8 +138,6 @@ export default function SongsPage() {
           >
             Importar
           </Link>
-
-          {/* ✅ removido: Nova cifra */}
         </div>
       </div>
 
@@ -119,9 +149,27 @@ export default function SongsPage() {
           placeholder="Buscar por título, artista, tom ou tag..."
           className="w-full border rounded px-3 py-2 text-sm"
         />
-        <div className="mt-1 text-xs opacity-60">
-          Mostrando {filtered.length} de {items.length}
+
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <div className="text-xs opacity-60">
+            {loading ? "Carregando..." : `Mostrando ${filtered.length} de ${items.length}`}
+          </div>
+
+          <button
+            type="button"
+            onClick={load}
+            className="border rounded px-3 py-2 text-xs hover:bg-gray-50 transition"
+            title="Recarregar"
+          >
+            Recarregar
+          </button>
         </div>
+
+        {pageError ? (
+          <div className="mt-2 text-xs text-red-600">
+            {pageError}
+          </div>
+        ) : null}
       </div>
 
       {/* States */}
@@ -129,7 +177,7 @@ export default function SongsPage() {
         <div className="border rounded p-4 text-sm opacity-70">Carregando...</div>
       ) : null}
 
-      {!loading && !items.length ? (
+      {!loading && !items.length && !pageError ? (
         <div className="border rounded p-4 text-sm opacity-70">
           Nenhuma cifra ainda. Clique em <span className="font-medium">Importar</span> para começar.
         </div>
@@ -155,7 +203,7 @@ export default function SongsPage() {
                   {s.artist ? `${s.artist} • ` : ""}Tom: {s.originalKey}
                 </div>
 
-                {s.tags?.length ? (
+                {Array.isArray(s.tags) && s.tags.length ? (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {s.tags.map((t) => (
                       <span
