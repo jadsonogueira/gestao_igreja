@@ -50,8 +50,9 @@ export async function GET(_request: Request, { params }: Params) {
         originalKey: song.originalKey,
         tags: song.tags,
         content: song.content,
-        createdAt: song.createdAt,
-        updatedAt: song.updatedAt,
+        // ✅ garante string (bate com seu type no client)
+        createdAt: song.createdAt.toISOString(),
+        updatedAt: song.updatedAt.toISOString(),
       },
     });
   } catch (error) {
@@ -122,7 +123,15 @@ export async function PATCH(request: Request, { params }: Params) {
       },
     });
 
-    return NextResponse.json({ success: true, data: updated });
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...updated,
+        // ✅ garante string (bate com seu type no client)
+        createdAt: updated.createdAt.toISOString(),
+        updatedAt: updated.updatedAt.toISOString(),
+      },
+    });
   } catch (error) {
     console.error("Error updating song:", error);
     return NextResponse.json(
@@ -143,16 +152,23 @@ export async function DELETE(_request: Request, { params }: Params) {
       );
     }
 
-    // checa se existe antes (pra dar 404 bonitinho)
-    const existing = await prisma.song.findUnique({ where: { id }, select: { id: true } });
-    if (!existing) {
-      return NextResponse.json(
-        { success: false, error: "Cifra não encontrada" },
-        { status: 404 }
-      );
+    /**
+     * ✅ Deleta direto e trata "não encontrado" pelo código do Prisma
+     * (evita 2 queries)
+     */
+    try {
+      await prisma.song.delete({ where: { id } });
+    } catch (e: any) {
+      // Prisma: "Record to delete does not exist."
+      // código conhecido: P2025
+      if (e?.code === "P2025") {
+        return NextResponse.json(
+          { success: false, error: "Cifra não encontrada" },
+          { status: 404 }
+        );
+      }
+      throw e;
     }
-
-    await prisma.song.delete({ where: { id } });
 
     return NextResponse.json({ success: true });
   } catch (error) {
