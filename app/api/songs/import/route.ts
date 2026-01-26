@@ -215,7 +215,7 @@ export async function POST(request: Request) {
     // ✅ limpar texto antes de parsear
     const rawTextClean = cleanRawSongText(rawTextInput);
 
-    const { content, chordsUsed } = parseSongFromChordAboveText(rawTextClean);
+    const { content, chordsUsed } = parseSongAuto(rawText);
     const searchIndex = buildSearchIndex({ title, artist, content });
 
     const song = await prisma.song.create({
