@@ -62,7 +62,7 @@ export async function POST(req: Request, { params }: Params) {
       select: { order: true },
     });
 
-    const nextOrder = (last?.order ?? 0) + 1;
+    const nextOrder = (last?.order ?? -1) + 1;
 
     const created = await prisma.songListItem.create({
       data: {
