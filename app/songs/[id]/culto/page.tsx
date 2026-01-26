@@ -108,7 +108,7 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
 
   // ✅ fonte padrão menor
   // IMPORTANTÍSSIMO: UM fontSize para cifra+letra (não quebra o alinhamento)
-  const [fontSize, setFontSize] = useState(18); // era 20
+  const [fontSize, setFontSize] = useState(14); // era 20
   const [lineHeight, setLineHeight] = useState(1.32);
   const [cols, setCols] = useState(43);
 
