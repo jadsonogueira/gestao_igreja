@@ -17,7 +17,7 @@ type SongChordToken = { chord: string; pos: number };
 type SongLine = { lyric: string; chords: SongChordToken[] };
 type SongPart = { type: string; title?: string | null; lines: SongLine[] };
 
-const KEY_OPTIONS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"] as const;
+const KEY_OPTIONS = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"] as const;
 
 function normKey(k?: string | null) {
   return String(k ?? "").trim().toUpperCase();
@@ -88,13 +88,10 @@ function transposePartsToNewBase(
 }
 
 /**
- * ✅ MODO ALINHADO (editor):
+ * ✅ MODO ALINHADO (editor) — único modo agora:
  * - mantém coluna/pos
- * - SEM scroll horizontal: o container corta o excesso (overflow-hidden)
- * - acordes menores + letra maior (mas ambos monospace pra manter "colunas")
- *
- * Obs: pra manter alinhamento real, chord e lyric precisam ser monospace.
- * Aqui aumentamos a leitura: letra um pouco maior e acordes mais discretos.
+ * - sem scroll horizontal: o container corta o excesso (overflow-hidden)
+ * - acordes menores, letra um pouco maior
  */
 function ChordOverlayAligned({
   lyric,
@@ -111,7 +108,6 @@ function ChordOverlayAligned({
 }) {
   if (!tokensShown?.length) return null;
 
-  // monta uma "linha" de largura suficiente (baseada na letra e nos acordes)
   const maxNeeded = Math.max(
     lyric.length,
     ...tokensShown.map((c) => (c.pos ?? 0) + (String(c.chord ?? "").length || 0))
@@ -160,7 +156,6 @@ function ChordOverlayAligned({
 
   return (
     <div className="overflow-hidden">
-      {/* acordes pequenos */}
       <div className="whitespace-pre font-mono text-[12px] leading-5 opacity-90">
         {segments.map((seg, i) => {
           if (seg.type === "space") return <span key={`sp-${i}`}>{seg.text}</span>;
@@ -206,83 +201,12 @@ function ChordOverlayAligned({
   );
 }
 
-/**
- * ✅ MODO COMPACTO (pra tocar no celular):
- * - NUNCA estoura a tela (wrap)
- * - acordes viram “chips” acima da letra
- * - continua clicável e com mover pos (pos ainda existe, só não precisa alinhar)
- */
-function ChordRowCompact({
-  tokensShown,
-  tokensBase,
-  onOpenPicker,
-  onMovePos,
-}: {
-  tokensShown: SongChordToken[];
-  tokensBase: SongChordToken[];
-  onOpenPicker: (tokenIndex: number, chordShown: string) => void;
-  onMovePos: (tokenIndex: number, delta: number) => void;
-}) {
-  if (!tokensShown?.length) return null;
-
-  // ordena por pos pra ficar “mais musical”
-  const ordered = tokensShown
-    .map((t, idx) => ({ idx, ...t }))
-    .sort((a, b) => (a.pos ?? 0) - (b.pos ?? 0));
-
-  return (
-    <div className="flex flex-wrap gap-2">
-      {ordered.map((t) => {
-        const basePos = tokensBase?.[t.idx]?.pos ?? 0;
-        return (
-          <div
-            key={`${t.chord}-${t.pos}-${t.idx}`}
-            className="inline-flex items-center gap-1 rounded-full border px-2 py-1"
-          >
-            <button
-              type="button"
-              onClick={() => onMovePos(t.idx, -1)}
-              className="text-[11px] opacity-60 hover:opacity-100"
-              title={`Mover para esquerda (pos ${basePos} → ${Math.max(0, basePos - 1)})`}
-              aria-label="Mover acorde para esquerda"
-            >
-              ◀
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onOpenPicker(t.idx, String(t.chord ?? ""))}
-              className="font-mono text-[12px] underline decoration-dotted underline-offset-2"
-              title="Clique para trocar o acorde"
-            >
-              {String(t.chord ?? "")}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => onMovePos(t.idx, +1)}
-              className="text-[11px] opacity-60 hover:opacity-100"
-              title={`Mover para direita (pos ${basePos} → ${basePos + 1})`}
-              aria-label="Mover acorde para direita"
-            >
-              ▶
-            </button>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 export default function SongViewer({ song }: { song: SongDetail }) {
   const router = useRouter();
 
   const [transpose, setTranspose] = useState(0);
   const accidentalPref: AccidentalPref = "sharp";
   const [savedOriginalKey, setSavedOriginalKey] = useState(song.originalKey);
-
-  // ✅ modo de visualização da cifra
-  const [viewMode, setViewMode] = useState<"aligned" | "compact">("compact");
 
   const [partsBase, setPartsBase] = useState<SongPart[]>(
     () => deepCloneParts(song.content?.parts ?? [])
@@ -307,7 +231,12 @@ export default function SongViewer({ song }: { song: SongDetail }) {
 
   const parts = useMemo(() => partsBase ?? [], [partsBase]);
 
-  function openPickerFromOverlay(partIdx: number, lineIdx: number, tokenIndex: number, chordShown: string) {
+  function openPickerFromOverlay(
+    partIdx: number,
+    lineIdx: number,
+    tokenIndex: number,
+    chordShown: string
+  ) {
     setSelected({ partIdx, lineIdx, chordIdx: tokenIndex, displayChord: chordShown });
     setPickerOpen(true);
   }
@@ -418,6 +347,10 @@ export default function SongViewer({ song }: { song: SongDetail }) {
               {dirty ? "Alterações pendentes." : "Tudo salvo."}
             </div>
 
+            <div className="mt-3 text-xs opacity-60">
+              Dica: use ◀ ▶ em cima do acorde para ajustar a posição (pos) sem mexer no texto importado.
+            </div>
+
             {song.tags?.length ? (
               <div className="mt-2 flex flex-wrap gap-2">
                 {song.tags.map((t) => (
@@ -478,34 +411,6 @@ export default function SongViewer({ song }: { song: SongDetail }) {
             </button>
           </div>
         </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <div className="text-xs opacity-70">Visual:</div>
-          <button
-            type="button"
-            onClick={() => setViewMode("compact")}
-            className={`rounded-full border px-3 py-1 text-xs ${
-              viewMode === "compact" ? "bg-gray-900 text-white" : "hover:bg-gray-50"
-            }`}
-            title="Modo compacto: ideal pra tocar no celular (sem estourar a tela)"
-          >
-            Compacto (tocar)
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("aligned")}
-            className={`rounded-full border px-3 py-1 text-xs ${
-              viewMode === "aligned" ? "bg-gray-900 text-white" : "hover:bg-gray-50"
-            }`}
-            title="Modo alinhado: ideal pra editar posição (pos)"
-          >
-            Alinhado (editar)
-          </button>
-
-          <div className="ml-auto text-xs opacity-60">
-            Dica: ◀ ▶ move a posição sem mexer no texto importado.
-          </div>
-        </div>
       </div>
 
       <div className="space-y-6">
@@ -525,33 +430,19 @@ export default function SongViewer({ song }: { song: SongDetail }) {
 
                 return (
                   <div key={lineIdx} className="rounded-lg border p-3">
-                    {/* ✅ acordes */}
-                    {viewMode === "aligned" ? (
-                      <ChordOverlayAligned
-                        lyric={line.lyric ?? ""}
-                        tokensShown={tokensShown}
-                        tokensBase={tokensBase}
-                        onOpenPicker={(tokenIndex, chordShown) =>
-                          openPickerFromOverlay(partIdx, lineIdx, tokenIndex, chordShown)
-                        }
-                        onMovePos={(tokenIndex, delta) =>
-                          moveChordPos(partIdx, lineIdx, tokenIndex, delta)
-                        }
-                      />
-                    ) : (
-                      <ChordRowCompact
-                        tokensShown={tokensShown}
-                        tokensBase={tokensBase}
-                        onOpenPicker={(tokenIndex, chordShown) =>
-                          openPickerFromOverlay(partIdx, lineIdx, tokenIndex, chordShown)
-                        }
-                        onMovePos={(tokenIndex, delta) =>
-                          moveChordPos(partIdx, lineIdx, tokenIndex, delta)
-                        }
-                      />
-                    )}
+                    <ChordOverlayAligned
+                      lyric={line.lyric ?? ""}
+                      tokensShown={tokensShown}
+                      tokensBase={tokensBase}
+                      onOpenPicker={(tokenIndex, chordShown) =>
+                        openPickerFromOverlay(partIdx, lineIdx, tokenIndex, chordShown)
+                      }
+                      onMovePos={(tokenIndex, delta) =>
+                        moveChordPos(partIdx, lineIdx, tokenIndex, delta)
+                      }
+                    />
 
-                    {/* ✅ letra maior / mais confortável */}
+                    {/* ✅ letra confortável, mas sem “estourar” */}
                     <div className="mt-2 whitespace-pre-wrap font-mono text-[16px] leading-7 break-words">
                       {line.lyric ?? ""}
                     </div>
