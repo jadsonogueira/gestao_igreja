@@ -20,10 +20,31 @@ type SongDetail = {
   updatedAt: string;
 };
 
-type ListNavItem = { id: string; title: string };
-type ListNavResponse =
-  | { success: true; data: { id: string; name: string; items: ListNavItem[] } }
+type ListItemFromApi = {
+  id: string; // id do songListItem
+  order: number;
+  song: {
+    id: string;
+    title: string;
+    artist: string | null;
+    originalKey: string;
+    tags: string[];
+    updatedAt: string;
+  };
+};
+
+type SongListApiResponse =
+  | {
+      success: true;
+      data: {
+        id: string;
+        name: string;
+        items: ListItemFromApi[];
+      };
+    }
   | { success: false; error?: string };
+
+type ListNavItem = { id: string; title: string };
 
 function partLabel(p: SongPart) {
   const t = (p.title ?? "").trim();
@@ -134,7 +155,7 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
 
   const currentSongId = params.id;
 
-  async function load() {
+  async function loadSong() {
     setLoading(true);
     const res = await fetch(`/api/songs/${params.id}`, { cache: "no-store" });
     const json = await res.json();
@@ -144,7 +165,7 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
   }
 
   useEffect(() => {
-    load().catch((e: any) => {
+    loadSong().catch((e: any) => {
       toast.error(e?.message || "Erro ao carregar");
       setLoading(false);
     });
@@ -181,55 +202,55 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
     };
   }, [keepAwake]);
 
-  // ✅ pega listId da URL e busca as músicas dessa lista (se existir endpoint)
+  // ✅ lê listId da URL e carrega itens da lista pelo seu endpoint real
   useEffect(() => {
     const qListId = searchParams.get("listId");
-    setListId(qListId ? String(qListId) : null);
+    const nextListId = qListId ? String(qListId) : null;
+    setListId(nextListId);
 
     async function loadList(navListId: string) {
       try {
-        // Tentativa padrão: GET /api/song-lists/:id retornando { items: [{id,title}] }
         const res = await fetch(`/api/song-lists/${encodeURIComponent(navListId)}`, {
           cache: "no-store",
         });
-        const json = (await res.json().catch(() => null)) as ListNavResponse | null;
+        const json = (await res.json().catch(() => null)) as SongListApiResponse | null;
 
         if (!res.ok || !json || (json as any)?.success !== true) {
-          // Se não existir esse endpoint/shape, apenas não mostra navegação.
-          setListItems(null);
           setListName(null);
+          setListItems(null);
           return;
         }
 
         if (!json.success) {
-          setListItems(null);
           setListName(null);
+          setListItems(null);
           return;
         }
 
         const items = Array.isArray(json.data?.items) ? json.data.items : [];
+
         setListName(json.data?.name ?? null);
         setListItems(
           items
-            .map((it: any) => ({
-              id: String(it?.id ?? ""),
-              title: String(it?.title ?? ""),
+            .map((it) => ({
+              id: String(it?.song?.id ?? ""),
+              title: String(it?.song?.title ?? ""),
             }))
-            .filter((it: ListNavItem) => it.id && it.title)
+            .filter((it) => it.id && it.title)
         );
       } catch {
-        setListItems(null);
         setListName(null);
+        setListItems(null);
       }
     }
 
-    if (qListId) loadList(String(qListId));
+    if (nextListId) loadList(nextListId);
     else {
-      setListItems(null);
       setListName(null);
+      setListItems(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, currentSongId]);
+  }, [searchParams]);
 
   const parts = useMemo(() => song?.content?.parts ?? [], [song]);
 
@@ -242,15 +263,15 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
     const prev = idx > 0 ? listItems[idx - 1] : null;
     const next = idx < listItems.length - 1 ? listItems[idx + 1] : null;
 
-    const makeHref = (songId: string) => `/songs/${songId}/culto?listId=${encodeURIComponent(listId)}`;
+    const makeCultoHref = (songId: string) =>
+      `/songs/${songId}/culto?listId=${encodeURIComponent(listId)}`;
 
     return {
       idx,
       total: listItems.length,
-      prev: prev ? { ...prev, href: makeHref(prev.id) } : null,
-      next: next ? { ...next, href: makeHref(next.id) } : null,
+      prev: prev ? { ...prev, href: makeCultoHref(prev.id) } : null,
+      next: next ? { ...next, href: makeCultoHref(next.id) } : null,
       backHref: `/song-lists/${encodeURIComponent(listId)}`,
-      fallbackBackHref: "/song-lists",
       listName: listName ?? null,
     };
   }, [listId, listItems, currentSongId, listName]);
@@ -452,10 +473,7 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
                           </div>
                         ) : null}
 
-                        <div
-                          className="whitespace-pre font-mono"
-                          style={{ fontSize, lineHeight }}
-                        >
+                        <div className="whitespace-pre font-mono" style={{ fontSize, lineHeight }}>
                           {seg.lyricLine}
                         </div>
                       </div>
@@ -474,7 +492,7 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
         ID: <span className="font-mono">{song?.id ?? params.id}</span>
       </div>
 
-      {/* ✅ RODAPÉ: navegação por lista (se houver listId e conseguirmos carregar itens) */}
+      {/* ✅ RODAPÉ: navegação entre músicas da lista */}
       {nav ? (
         <div
           className="fixed bottom-0 left-0 right-0 z-20 border-t bg-white/95 dark:bg-black/90"
@@ -502,20 +520,11 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
               {/* voltar à lista */}
               <a
                 href={nav.backHref}
-                onClick={(e) => {
-                  // se a rota /song-lists/[id] não existir, cai pra /song-lists
-                  // (não dá pra testar com certeza aqui, então deixamos fallback simples)
-                  // Se quiser, você me manda a estrutura das rotas de song-lists e eu ajusto 100%.
-                }}
                 className="rounded-lg border px-2 py-2 text-center text-sm hover:bg-black/5 dark:hover:bg-white/5 transition"
                 title="Voltar à lista"
               >
-                <div className="text-xs opacity-70">
-                  {nav.listName ? nav.listName : "Lista"}
-                </div>
-                <div className="font-medium underline underline-offset-2">
-                  Voltar à lista
-                </div>
+                <div className="text-xs opacity-70">{nav.listName ? nav.listName : "Lista"}</div>
+                <div className="font-medium underline underline-offset-2">Voltar à lista</div>
               </a>
 
               {/* próxima */}
