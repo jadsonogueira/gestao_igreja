@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import AddToListButton from "./AddToListButton";
@@ -53,7 +54,8 @@ export default function SongsPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-4 space-y-4">
-      <div className="flex items-start justify-between gap-3">
+      {/* Header */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Cifras</h1>
           <div className="text-sm opacity-70">
@@ -61,29 +63,44 @@ export default function SongsPage() {
           </div>
         </div>
 
-        <a className="border rounded px-3 py-2 text-sm" href="/song-lists">
-          Listas
-        </a>
+        <div className="flex items-center gap-2">
+          <Link
+            className="border rounded px-3 py-2 text-sm hover:bg-gray-50 transition"
+            href="/song-lists"
+          >
+            Listas
+          </Link>
+
+          <Link
+            className="rounded px-3 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 transition"
+            href="/songs/new"
+          >
+            Nova cifra
+          </Link>
+        </div>
       </div>
 
+      {/* States */}
       {loading ? (
         <div className="border rounded p-4 text-sm opacity-70">Carregando...</div>
       ) : null}
 
       {!loading && !items.length ? (
         <div className="border rounded p-4 text-sm opacity-70">
-          Nenhuma cifra ainda.
+          Nenhuma cifra ainda. Clique em <span className="font-medium">Nova cifra</span> para começar.
         </div>
       ) : null}
 
+      {/* List */}
       <div className="space-y-2">
         {items.map((s) => (
-          <div key={s.id} className="border rounded p-3">
+          <div key={s.id} className="border rounded p-3 hover:bg-gray-50 transition">
             <div className="flex items-start justify-between gap-3">
-              <div>
-                <a href={`/songs/${s.id}`} className="font-medium underline">
+              <div className="min-w-0">
+                <Link href={`/songs/${s.id}`} className="font-medium underline">
                   {s.title}
-                </a>
+                </Link>
+
                 <div className="text-xs opacity-70">
                   {s.artist ? `${s.artist} • ` : ""}Tom: {s.originalKey}
                 </div>
