@@ -29,9 +29,11 @@ export default function AddToListButton({
         { cache: "no-store" }
       );
       const json = await res.json();
+
       if (!res.ok || !json?.success) {
         throw new Error(json?.error || "Erro ao carregar listas");
       }
+
       setLists(json.data ?? []);
     } catch (e: any) {
       toast.error(e?.message || "Erro ao carregar listas");
@@ -88,11 +90,8 @@ export default function AddToListButton({
   }
 
   async function toggleList(list: SongList) {
-    if (list.inList) {
-      await removeFromList(list.id);
-    } else {
-      await addToList(list.id);
-    }
+    if (list.inList) return removeFromList(list.id);
+    return addToList(list.id);
   }
 
   const buttonClass = useMemo(() => {
@@ -108,7 +107,7 @@ export default function AddToListButton({
         onClick={() => setOpen((v) => !v)}
         title="Adicionar/remover esta cifra em listas"
       >
-        + Lista
+        {loading && open ? "..." : "+ Lista"}
       </button>
 
       {open ? (
