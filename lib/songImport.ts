@@ -27,22 +27,57 @@ function normalizeLine(line: string) {
 const HEADING_MAP: Array<{ re: RegExp; type: string }> = [
   { re: /^(intro|introdu(c|ç)(a|ã)o)\b/i, type: "INTRO" },
   { re: /^(verso)\b/i, type: "VERSO" },
-  { re: /^(refr(a|ã)o|coro)\b/i, type: "REFRAO" },
-  { re: /^(pre\s*-?\s*refr(a|ã)o|pr(e|é)\s*-?\s*coro)\b/i, type: "PRE_REFRAO" },
-  { re: /^(ponte)\b/i, type: "PONTE" },
+  { re: /^(refr(a|ã)o|coro|chorus)\b/i, type: "REFRAO" },
+  {
+    re: /^(pre\s*-?\s*refr(a|ã)o|pr(e|é)\s*-?\s*coro|pre\s*-?\s*chorus)\b/i,
+    type: "PRE_REFRAO",
+  },
+  { re: /^(ponte|bridge)\b/i, type: "PONTE" },
   { re: /^(final|outro|tag)\b/i, type: "FINAL" },
   { re: /^(interl(ú|u)dio)\b/i, type: "INTERLUDIO" },
 ];
 
-function parseHeading(line: string): { type: string; title?: string } | null {
+/**
+ * Remove símbolos comuns colados no heading, ex:
+ * "INTRO]" "INTRO:" "INTRO -" "(INTRO)" "[INTRO]"
+ */
+function cleanHeadingPrefix(s: string) {
+  return s
+    .trim()
+    .replace(/^[\[\(\{]+/, "") // abre
+    .replace(/[\]\)\}]+$/, "") // fecha
+    .trim();
+}
+
+function splitHeadingAndRest(line: string): { left: string; rest: string } {
+  const t = line.trim();
+  if (!t) return { left: "", rest: "" };
+
+  // separadores comuns após o título
+  // INTRO] D A ...
+  // INTRO: D A ...
+  // INTRO - D A ...
+  const m = t.match(/^(.+?)(?:\]|\:|\-|\–|\—)\s*(.+)$/);
+  if (m) {
+    return { left: m[1] ?? "", rest: m[2] ?? "" };
+  }
+
+  return { left: t, rest: "" };
+}
+
+function parseHeading(line: string): { type: string; title?: string; rest?: string } | null {
   const t = line.trim();
   if (!t) return null;
 
+  const { left, rest } = splitHeadingAndRest(t);
+  const head = cleanHeadingPrefix(left);
+
   for (const h of HEADING_MAP) {
-    if (h.re.test(t)) {
-      return { type: h.type, title: t };
+    if (h.re.test(head)) {
+      return { type: h.type, title: head, rest: rest?.trim() || "" };
     }
   }
+
   return null;
 }
 
@@ -79,8 +114,7 @@ function isChordLine(line: string) {
 }
 
 /**
- * ✅ Novo: linha com 1 acorde sozinho (ex.: "C" em uma linha)
- * Isso cobre o caso que você testou: "C\nTeste"
+ * ✅ linha com 1 acorde sozinho (ex.: "C" em uma linha)
  */
 function isSingleChordOnlyLine(line: string) {
   const t = line.trim();
@@ -93,24 +127,21 @@ function isSingleChordOnlyLine(line: string) {
 }
 
 /**
- * Heurística para evitar tratar letra como acorde quando a "próxima linha" também é curta/estranha.
- * Ex: se alguém realmente quer uma linha de letra "C" isolada (raro), aqui ajudamos a não errar demais.
+ * Heurística para dizer se a próxima linha é "letra".
  */
 function nextLineLooksLikeLyric(next: string) {
   const t = next.trim();
   if (!t) return false;
 
-  // se a próxima linha também parece "só acorde", não é lyric
+  // se a próxima linha parece acorde, não é lyric
   if (isChordLine(next) || isSingleChordOnlyLine(next)) return false;
 
-  // se a próxima linha tem pelo menos 2 caracteres e contém alguma letra, consideramos lyric
-  // (inclui acentos)
+  // se tem letras, é lyric
   if (t.length >= 2 && /[A-Za-zÀ-ÿ]/.test(t)) return true;
 
-  // ou se tem espaços (frase)
+  // se parece frase
   if (/\s/.test(t) && t.length >= 3) return true;
 
-  // fallback
   return true;
 }
 
@@ -127,6 +158,33 @@ function extractChordsWithPositions(chordLine: string, lyricLine: string): SongC
     const col = m.index;
     const pos = Math.min(col, Math.max(lyricLine.length, 0));
     out.push({ chord: raw.trim(), pos });
+  }
+
+  const seen = new Set<string>();
+  return out.filter((c) => {
+    const key = `${c.pos}|${c.chord}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * ✅ novo: extrai acordes mantendo posição "real" mesmo sem linha de letra.
+ * (para INTRO: D  A  Bm  G, interlúdios, etc.)
+ */
+function extractChordsNoLyric(chordLine: string): SongChordToken[] {
+  const out: SongChordToken[] = [];
+
+  const re = /\S+/g;
+  let m: RegExpExecArray | null;
+
+  while ((m = re.exec(chordLine))) {
+    const raw = m[0];
+    if (!looksLikeChordToken(raw)) continue;
+
+    const col = m.index;
+    out.push({ chord: raw.trim(), pos: Math.max(0, col) });
   }
 
   const seen = new Set<string>();
@@ -168,29 +226,47 @@ export function parseSongFromChordAboveText(rawText: string): {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
 
-    // headings
+    // headings (agora suporta: INTRO] D D..., INTRO: D A..., etc.)
     const heading = parseHeading(line);
     if (heading) {
       currentPart = { type: heading.type, title: heading.title ?? null, lines: [] };
       parts.push(currentPart);
+
+      // ✅ se vier acordes na mesma linha do heading, cria linha instrumental
+      const rest = String(heading.rest ?? "").trim();
+      if (rest && (isChordLine(rest) || isSingleChordOnlyLine(rest))) {
+        const chords = extractChordsNoLyric(rest);
+        chords.forEach((c) => chordsSet.add(c.chord));
+
+        // lyric vazio (instrumental)
+        currentPart.lines.push({ lyric: "", chords });
+      }
+
       continue;
     }
 
     const next = i + 1 < lines.length ? (lines[i + 1] ?? "") : "";
 
-    const thisIsChord =
-      isChordLine(line) || isSingleChordOnlyLine(line);
+    const thisIsChord = isChordLine(line) || isSingleChordOnlyLine(line);
 
     // ✅ par "acorde em cima" + "letra"
     if (thisIsChord && nextLineLooksLikeLyric(next)) {
       const lyric = next;
       const chords = extractChordsWithPositions(line, lyric);
 
-      // se era single chord line tipo "C", extract vai pegar e pos=0
       chords.forEach((c) => chordsSet.add(c.chord));
 
       currentPart.lines.push({ lyric: lyric.trimEnd(), chords });
       i++; // pula a linha de letra já consumida
+      continue;
+    }
+
+    // ✅ linha só de acorde (instrumental) — não vira "letra"
+    if (thisIsChord && !nextLineLooksLikeLyric(next)) {
+      const chords = extractChordsNoLyric(line);
+      chords.forEach((c) => chordsSet.add(c.chord));
+
+      currentPart.lines.push({ lyric: "", chords });
       continue;
     }
 
