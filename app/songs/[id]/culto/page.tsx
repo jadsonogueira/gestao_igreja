@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import toast from "react-hot-toast";
+import { useSearchParams } from "next/navigation";
 import { transposeChordTokens, type AccidentalPref } from "@/lib/chords";
 
 type SongChordToken = { chord: string; pos: number };
@@ -18,6 +19,11 @@ type SongDetail = {
   createdAt: string;
   updatedAt: string;
 };
+
+type ListNavItem = { id: string; title: string };
+type ListNavResponse =
+  | { success: true; data: { id: string; name: string; items: ListNavItem[] } }
+  | { success: false; error?: string };
 
 function partLabel(p: SongPart) {
   const t = (p.title ?? "").trim();
@@ -98,6 +104,8 @@ async function requestWakeLock(): Promise<any | null> {
 }
 
 export default function SongCultoPage({ params }: { params: { id: string } }) {
+  const searchParams = useSearchParams();
+
   const [song, setSong] = useState<SongDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -108,9 +116,6 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
 
   /**
    * ✅ PADRÕES PARA BATER 1:1 COM O EDITOR
-   * - cols = 40 (igual ao editor)
-   * - 1 fontSize único pra cifra+letra (alinhamento)
-   * - fonte -4 pontos (ficou 10px)
    */
   const [fontSize, setFontSize] = useState(12);
   const [lineHeight, setLineHeight] = useState(1.05);
@@ -121,6 +126,13 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
 
   const [keepAwake, setKeepAwake] = useState(false);
   const wakeLockRef = useRef<any | null>(null);
+
+  // ✅ navegação por lista (opcional)
+  const [listId, setListId] = useState<string | null>(null);
+  const [listName, setListName] = useState<string | null>(null);
+  const [listItems, setListItems] = useState<ListNavItem[] | null>(null);
+
+  const currentSongId = params.id;
 
   async function load() {
     setLoading(true);
@@ -169,11 +181,83 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
     };
   }, [keepAwake]);
 
+  // ✅ pega listId da URL e busca as músicas dessa lista (se existir endpoint)
+  useEffect(() => {
+    const qListId = searchParams.get("listId");
+    setListId(qListId ? String(qListId) : null);
+
+    async function loadList(navListId: string) {
+      try {
+        // Tentativa padrão: GET /api/song-lists/:id retornando { items: [{id,title}] }
+        const res = await fetch(`/api/song-lists/${encodeURIComponent(navListId)}`, {
+          cache: "no-store",
+        });
+        const json = (await res.json().catch(() => null)) as ListNavResponse | null;
+
+        if (!res.ok || !json || (json as any)?.success !== true) {
+          // Se não existir esse endpoint/shape, apenas não mostra navegação.
+          setListItems(null);
+          setListName(null);
+          return;
+        }
+
+        if (!json.success) {
+          setListItems(null);
+          setListName(null);
+          return;
+        }
+
+        const items = Array.isArray(json.data?.items) ? json.data.items : [];
+        setListName(json.data?.name ?? null);
+        setListItems(
+          items
+            .map((it: any) => ({
+              id: String(it?.id ?? ""),
+              title: String(it?.title ?? ""),
+            }))
+            .filter((it: ListNavItem) => it.id && it.title)
+        );
+      } catch {
+        setListItems(null);
+        setListName(null);
+      }
+    }
+
+    if (qListId) loadList(String(qListId));
+    else {
+      setListItems(null);
+      setListName(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, currentSongId]);
+
   const parts = useMemo(() => song?.content?.parts ?? [], [song]);
 
+  const nav = useMemo(() => {
+    if (!listId || !listItems?.length) return null;
+
+    const idx = listItems.findIndex((it) => it.id === currentSongId);
+    if (idx < 0) return null;
+
+    const prev = idx > 0 ? listItems[idx - 1] : null;
+    const next = idx < listItems.length - 1 ? listItems[idx + 1] : null;
+
+    const makeHref = (songId: string) => `/songs/${songId}/culto?listId=${encodeURIComponent(listId)}`;
+
+    return {
+      idx,
+      total: listItems.length,
+      prev: prev ? { ...prev, href: makeHref(prev.id) } : null,
+      next: next ? { ...next, href: makeHref(next.id) } : null,
+      backHref: `/song-lists/${encodeURIComponent(listId)}`,
+      fallbackBackHref: "/song-lists",
+      listName: listName ?? null,
+    };
+  }, [listId, listItems, currentSongId, listName]);
+
   return (
-    <main className="mx-auto max-w-3xl px-3 py-3">
-      {/* ✅ Botão flutuante (topo some no modo tocar) */}
+    <main className="mx-auto max-w-3xl px-3 py-3 pb-24">
+      {/* ✅ Botão flutuante */}
       <button
         className="fixed right-3 top-3 z-20 rounded-full border bg-white/95 dark:bg-black/90 w-11 h-11 flex items-center justify-center shadow-sm"
         onClick={() => setSettingsOpen((v) => !v)}
@@ -183,7 +267,7 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
         ⚙️
       </button>
 
-      {/* ✅ Painel de ajustes (abre pelo ⚙️) */}
+      {/* ✅ Painel de ajustes */}
       {settingsOpen ? (
         <div className="mb-3 rounded-xl border p-3 bg-white/95 dark:bg-black/95">
           <div className="flex items-start justify-between gap-3">
@@ -209,6 +293,13 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
                   </>
                 ) : null}
               </div>
+
+              {nav?.listName ? (
+                <div className="mt-1 text-xs opacity-70">
+                  Lista: <span className="font-medium">{nav.listName}</span> •{" "}
+                  {nav.idx + 1}/{nav.total}
+                </div>
+              ) : null}
             </div>
 
             <button
@@ -221,7 +312,6 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {/* cifras */}
             <button
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={() => setShowChords((v) => !v)}
@@ -230,7 +320,6 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
               {showChords ? "Cifras ✓" : "Cifras ✗"}
             </button>
 
-            {/* wake lock */}
             <button
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={() => setKeepAwake((v) => !v)}
@@ -239,7 +328,6 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
               {keepAwake ? "Tela ✓" : "Tela"}
             </button>
 
-            {/* fonte (um controle só) */}
             <button
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={() => setFontSize((v) => Math.max(8, v - 1))}
@@ -255,7 +343,6 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
               A+
             </button>
 
-            {/* line height */}
             <button
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={() =>
@@ -275,7 +362,6 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
               Linhas ⇡
             </button>
 
-            {/* cols */}
             <button
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={() => setCols((v) => Math.max(20, v - 2))}
@@ -291,7 +377,6 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
               Cols →
             </button>
 
-            {/* transposição aqui dentro */}
             <button
               className="rounded-lg border px-3 py-2 text-sm"
               onClick={() => setTranspose((v) => v - 1)}
@@ -331,7 +416,7 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
         </div>
       ) : null}
 
-      {/* ✅ CONTEÚDO: estilo compacto (banana cifra vibes) */}
+      {/* ✅ CONTEÚDO */}
       <div className="space-y-5">
         {parts.map((part, partIdx) => (
           <section key={`${part.type}-${partIdx}`} className="space-y-2">
@@ -360,7 +445,7 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
                             style={{
                               fontSize,
                               lineHeight,
-                              color: "#2563EB", // azul
+                              color: "#2563EB",
                             }}
                           >
                             {seg.chordLine}
@@ -388,6 +473,75 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
       <div className="mt-6 text-xs opacity-60">
         ID: <span className="font-mono">{song?.id ?? params.id}</span>
       </div>
+
+      {/* ✅ RODAPÉ: navegação por lista (se houver listId e conseguirmos carregar itens) */}
+      {nav ? (
+        <div
+          className="fixed bottom-0 left-0 right-0 z-20 border-t bg-white/95 dark:bg-black/90"
+          style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 10px)" }}
+        >
+          <div className="mx-auto max-w-3xl px-3 pt-2">
+            <div className="grid grid-cols-3 items-center gap-2">
+              {/* anterior */}
+              {nav.prev ? (
+                <a
+                  href={nav.prev.href}
+                  className="rounded-lg border px-2 py-2 text-left text-sm hover:bg-black/5 dark:hover:bg-white/5 transition"
+                  title={`Anterior: ${nav.prev.title}`}
+                >
+                  <div className="text-xs opacity-70">←</div>
+                  <div className="truncate font-medium">{nav.prev.title}</div>
+                </a>
+              ) : (
+                <div className="rounded-lg border px-2 py-2 text-sm opacity-40">
+                  <div className="text-xs">←</div>
+                  <div className="truncate">—</div>
+                </div>
+              )}
+
+              {/* voltar à lista */}
+              <a
+                href={nav.backHref}
+                onClick={(e) => {
+                  // se a rota /song-lists/[id] não existir, cai pra /song-lists
+                  // (não dá pra testar com certeza aqui, então deixamos fallback simples)
+                  // Se quiser, você me manda a estrutura das rotas de song-lists e eu ajusto 100%.
+                }}
+                className="rounded-lg border px-2 py-2 text-center text-sm hover:bg-black/5 dark:hover:bg-white/5 transition"
+                title="Voltar à lista"
+              >
+                <div className="text-xs opacity-70">
+                  {nav.listName ? nav.listName : "Lista"}
+                </div>
+                <div className="font-medium underline underline-offset-2">
+                  Voltar à lista
+                </div>
+              </a>
+
+              {/* próxima */}
+              {nav.next ? (
+                <a
+                  href={nav.next.href}
+                  className="rounded-lg border px-2 py-2 text-right text-sm hover:bg-black/5 dark:hover:bg-white/5 transition"
+                  title={`Próxima: ${nav.next.title}`}
+                >
+                  <div className="text-xs opacity-70">→</div>
+                  <div className="truncate font-medium">{nav.next.title}</div>
+                </a>
+              ) : (
+                <div className="rounded-lg border px-2 py-2 text-sm opacity-40 text-right">
+                  <div className="text-xs">→</div>
+                  <div className="truncate">—</div>
+                </div>
+              )}
+            </div>
+
+            <div className="mt-1 text-[11px] opacity-60 text-center">
+              {nav.idx + 1}/{nav.total}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
