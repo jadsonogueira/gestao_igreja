@@ -8,7 +8,7 @@ import { buildSearchIndex, parseSongFromChordAboveText } from "@/lib/songImport"
 type ImportSongBody = {
   title?: string;
   artist?: string | null;
-  originalKey?: string; // agora opcional
+  originalKey?: string; // opcional
   rawText?: string;
   tags?: string[];
 };
@@ -19,6 +19,75 @@ function normalizeTags(input: unknown): string[] {
     .map((t) => String(t ?? "").trim())
     .filter(Boolean)
     .slice(0, 50);
+}
+
+/**
+ * Remove “lixo” comum do Cifra Club e normaliza linhas:
+ * - remove cabeçalhos e metadados (Tom:, Capotraste, etc.)
+ * - troca TAB por espaços
+ * - normaliza múltiplos espaços
+ * - remove excesso de linhas vazias
+ */
+function cleanRawSongText(raw: string) {
+  const lines = String(raw ?? "")
+    .replace(/\r/g, "")
+    .replace(/\t/g, "  ")
+    .split("\n");
+
+  const dropLine = (t: string) => {
+    const s = t.trim();
+    if (!s) return false;
+
+    // cabeçalhos comuns / metadados
+    if (/^cifra\s+club\b/i.test(s)) return true;
+    if (/^composi(c|ç)(a|ã)o\b/i.test(s)) return true;
+    if (/^tom\s*:/i.test(s)) return true; // mantemos o tom para detecção, mas removemos do corpo
+    if (/^key\s*:/i.test(s)) return true;
+    if (/^capotraste\b/i.test(s)) return true;
+    if (/^afina(c|ç)(a|ã)o\b/i.test(s)) return true;
+    if (/^tempo\b/i.test(s)) return true;
+    if (/^ritmo\b/i.test(s)) return true;
+    if (/^vers(a|ã)o\b/i.test(s)) return true;
+    if (/^(\d+)\s*x\s*$/i.test(s)) return true; // "2x" sozinho
+
+    // linhas “decorativas”
+    if (/^[\-\—\–\=\_]{3,}$/.test(s)) return true;
+
+    // links / créditos
+    if (/^https?:\/\//i.test(s)) return true;
+
+    return false;
+  };
+
+  const cleaned: string[] = [];
+  for (const line of lines) {
+    const normalized = line.replace(/\s+$/g, ""); // trimEnd
+    if (dropLine(normalized)) continue;
+
+    // normaliza múltiplos espaços, mas mantém alinhamento de cifras:
+    // aqui usamos um meio-termo: reduz 4+ espaços para 3 (evita “explodir” no mobile)
+    const soft = normalized.replace(/ {4,}/g, "   ");
+
+    cleaned.push(soft);
+  }
+
+  // remove excesso de linhas vazias (no máximo 1 em sequência)
+  const finalLines: string[] = [];
+  let lastWasEmpty = false;
+
+  for (const line of cleaned) {
+    const isEmpty = !line.trim();
+    if (isEmpty) {
+      if (lastWasEmpty) continue;
+      lastWasEmpty = true;
+      finalLines.push("");
+      continue;
+    }
+    lastWasEmpty = false;
+    finalLines.push(line);
+  }
+
+  return finalLines.join("\n").trim();
 }
 
 const KEY_ALIASES: Record<string, string> = {
@@ -39,8 +108,7 @@ const KEY_ALIASES: Record<string, string> = {
 function normalizeKey(raw: string): string | null {
   const s = raw.trim();
 
-  // aceita: C, C#, Db, Dm, C#m (aqui queremos só a raiz: C, C#, Db...)
-  // vamos pegar só a nota + acidente (se tiver)
+  // pega só a raiz: C, C#, Db, etc
   const m = s.match(/^([A-Ga-g])\s*([#b])?/);
   if (m) {
     const note = m[1].toUpperCase();
@@ -59,15 +127,25 @@ function detectKeyFromRawText(rawText: string): string | null {
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean)
-    .slice(0, 25); // normalmente o "Tom:" vem no topo
+    .slice(0, 35); // geralmente no topo
 
   for (const line of lines) {
-    // exemplos:
-    // "Tom: D"
-    // "Tom: Ré"
-    // "Key: C"
-    // "TOM: Bb"
-    const m = line.match(/^(tom|key)\s*:\s*(.+)$/i);
+    // Tom: D / Key: C
+    let m = line.match(/^(tom|key)\s*:\s*(.+)$/i);
+    if (m) {
+      const candidate = normalizeKey(m[2]);
+      if (candidate) return candidate;
+    }
+
+    // Tom D / Key C (sem :)
+    m = line.match(/^(tom|key)\s+(.+)$/i);
+    if (m) {
+      const candidate = normalizeKey(m[2]);
+      if (candidate) return candidate;
+    }
+
+    // "Capotraste: 2 (Tom: C)" -> extrai o Tom dentro
+    m = line.match(/\b(tom|key)\s*:\s*([A-G](?:#|b)?|dó|do|ré|re|mi|fá|fa|sol|lá|la|si)\b/i);
     if (m) {
       const candidate = normalizeKey(m[2]);
       if (candidate) return candidate;
@@ -82,7 +160,6 @@ export async function POST(request: Request) {
     const contentType = request.headers.get("content-type") ?? "";
     const contentLength = request.headers.get("content-length") ?? "unknown";
 
-    // Se não for JSON, já responde 400
     if (!contentType.includes("application/json")) {
       return NextResponse.json(
         {
@@ -111,7 +188,7 @@ export async function POST(request: Request) {
 
     const title = String(body.title ?? "").trim();
     const artist = body.artist ? String(body.artist).trim() : null;
-    const rawText = String(body.rawText ?? "").trim();
+    const rawTextInput = String(body.rawText ?? "");
     const tags = normalizeTags(body.tags);
 
     if (!title) {
@@ -121,20 +198,24 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!rawText) {
+    if (!rawTextInput.trim()) {
       return NextResponse.json(
         { success: false, error: "Cole a cifra no campo de texto" },
         { status: 400 }
       );
     }
 
-    // ✅ originalKey agora pode vir vazio; tentamos detectar
+    // ✅ detectar tom do TEXTO ORIGINAL (antes de limpar),
+    // porque a limpeza remove "Tom:" etc.
     const providedKey = String(body.originalKey ?? "").trim();
-    const detectedKey = detectKeyFromRawText(rawText);
+    const detectedKey = detectKeyFromRawText(rawTextInput);
 
     const originalKeyUsed = providedKey || detectedKey || "C";
 
-    const { content, chordsUsed } = parseSongFromChordAboveText(rawText);
+    // ✅ limpar texto antes de parsear
+    const rawTextClean = cleanRawSongText(rawTextInput);
+
+    const { content, chordsUsed } = parseSongFromChordAboveText(rawTextClean);
     const searchIndex = buildSearchIndex({ title, artist, content });
 
     const song = await prisma.song.create({
@@ -142,7 +223,7 @@ export async function POST(request: Request) {
         title,
         artist,
         originalKey: originalKeyUsed,
-        rawText,
+        rawText: rawTextClean, // salva já limpo (melhor pro futuro)
         content: content as any,
         chordsUsed,
         searchIndex,
