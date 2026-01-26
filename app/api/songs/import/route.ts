@@ -8,7 +8,7 @@ import { buildSearchIndex, parseSongFromChordAboveText } from "@/lib/songImport"
 type ImportSongBody = {
   title?: string;
   artist?: string | null;
-  originalKey?: string;
+  originalKey?: string; // agora opcional
   rawText?: string;
   tags?: string[];
 };
@@ -21,6 +21,62 @@ function normalizeTags(input: unknown): string[] {
     .slice(0, 50);
 }
 
+const KEY_ALIASES: Record<string, string> = {
+  // PT-BR
+  do: "C",
+  "dó": "C",
+  re: "D",
+  "ré": "D",
+  mi: "E",
+  fa: "F",
+  "fá": "F",
+  sol: "G",
+  la: "A",
+  "lá": "A",
+  si: "B",
+};
+
+function normalizeKey(raw: string): string | null {
+  const s = raw.trim();
+
+  // aceita: C, C#, Db, Dm, C#m (aqui queremos só a raiz: C, C#, Db...)
+  // vamos pegar só a nota + acidente (se tiver)
+  const m = s.match(/^([A-Ga-g])\s*([#b])?/);
+  if (m) {
+    const note = m[1].toUpperCase();
+    const acc = m[2] ? m[2] : "";
+    return `${note}${acc}`;
+  }
+
+  const lower = s.toLowerCase();
+  if (KEY_ALIASES[lower]) return KEY_ALIASES[lower];
+
+  return null;
+}
+
+function detectKeyFromRawText(rawText: string): string | null {
+  const lines = rawText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(0, 25); // normalmente o "Tom:" vem no topo
+
+  for (const line of lines) {
+    // exemplos:
+    // "Tom: D"
+    // "Tom: Ré"
+    // "Key: C"
+    // "TOM: Bb"
+    const m = line.match(/^(tom|key)\s*:\s*(.+)$/i);
+    if (m) {
+      const candidate = normalizeKey(m[2]);
+      if (candidate) return candidate;
+    }
+  }
+
+  return null;
+}
+
 export async function POST(request: Request) {
   try {
     const contentType = request.headers.get("content-type") ?? "";
@@ -31,8 +87,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error:
-            "Content-Type inválido. Use Content-Type: application/json",
+          error: "Content-Type inválido. Use Content-Type: application/json",
           debug: { contentType, contentLength },
         },
         { status: 400 }
@@ -56,20 +111,12 @@ export async function POST(request: Request) {
 
     const title = String(body.title ?? "").trim();
     const artist = body.artist ? String(body.artist).trim() : null;
-    const originalKey = String(body.originalKey ?? "").trim();
     const rawText = String(body.rawText ?? "").trim();
     const tags = normalizeTags(body.tags);
 
     if (!title) {
       return NextResponse.json(
         { success: false, error: "Título é obrigatório" },
-        { status: 400 }
-      );
-    }
-
-    if (!originalKey) {
-      return NextResponse.json(
-        { success: false, error: "Tom original é obrigatório" },
         { status: 400 }
       );
     }
@@ -81,6 +128,12 @@ export async function POST(request: Request) {
       );
     }
 
+    // ✅ originalKey agora pode vir vazio; tentamos detectar
+    const providedKey = String(body.originalKey ?? "").trim();
+    const detectedKey = detectKeyFromRawText(rawText);
+
+    const originalKeyUsed = providedKey || detectedKey || "C";
+
     const { content, chordsUsed } = parseSongFromChordAboveText(rawText);
     const searchIndex = buildSearchIndex({ title, artist, content });
 
@@ -88,18 +141,23 @@ export async function POST(request: Request) {
       data: {
         title,
         artist,
-        originalKey,
+        originalKey: originalKeyUsed,
         rawText,
         content: content as any,
         chordsUsed,
         searchIndex,
         tags,
       },
+      select: { id: true },
     });
 
     return NextResponse.json({
       success: true,
-      data: { id: song.id },
+      data: {
+        id: song.id,
+        detectedKey: detectedKey || null,
+        originalKeyUsed,
+      },
     });
   } catch (error) {
     console.error("Error importing song:", error);
