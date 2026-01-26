@@ -60,17 +60,7 @@ function parseHeading(line: string): { type: string; title?: string } | null {
 }
 
 /**
- * ✅ Regex de acorde (estrito o suficiente para NÃO confundir palavras como "As",
- * mas abrangente para notação BR).
- *
- * Aceita exemplos:
- * A, A9, Am, A7, A7M, Amaj7, Asus4, A4, F#m7, D/F#, Bm/A,
- * D7M/9, E7(4), etc.
- *
- * Observações:
- * - 7M e 7m são comuns no BR -> aceitos
- * - º / ° (diminuto) -> aceitos
- * - /9 (tensão) -> aceito (além do slash de baixo /A, /C#)
+ * ✅ Regex de acorde (abrangente para notação BR)
  */
 const CHORD_TOKEN_RE =
   /^[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus2|sus4|add\d+)?(?:\d+)?(?:M|m)?(?:º|°)?(?:\([0-9+#b\s]+\))?(?:\/(?:[A-G](?:#|b)?|\d+))?$/;
@@ -141,8 +131,6 @@ function extractChordsWithPositions(chordLine: string): SongChordToken[] {
     if (!looksLikeChordToken(raw)) continue;
 
     const col = m.index;
-
-    // ✅ não “amassa” pelo tamanho da letra
     const pos = Math.max(0, col);
 
     out.push({ chord: raw.trim(), pos });
@@ -155,6 +143,76 @@ function extractChordsWithPositions(chordLine: string): SongChordToken[] {
     seen.add(key);
     return true;
   });
+}
+
+/**
+ * ✅ Parser INLINE: [C]palavra ... [F/A]outra...
+ *
+ * Retorna:
+ * - lyric sem os [acordes]
+ * - chords com pos baseado na coluna da lyric "limpa"
+ *
+ * Importante:
+ * - sequências [Bb/D][C/E] (sem letra no meio) não podem ficar sobrepostas.
+ *   Então empurramos o próximo acorde para a direita usando o "fim do acorde anterior".
+ */
+function parseInlineChordLine(line: string): SongLine {
+  const chords: SongChordToken[] = [];
+  let lyric = "";
+
+  let i = 0;
+
+  // controla sobreposição quando tem [X][Y] colado
+  let lastChordEndPos = -1;
+  let lastWasChord = false;
+
+  while (i < line.length) {
+    const ch = line[i];
+
+    if (ch === "[") {
+      const close = line.indexOf("]", i + 1);
+      if (close !== -1) {
+        const inside = line.slice(i + 1, close).trim();
+
+        // se for um acorde válido, consome
+        if (looksLikeChordToken(inside)) {
+          // pos “natural”: onde estamos na lyric limpa
+          let pos = lyric.length;
+
+          // se veio outro acorde colado (sem letra), empurra pra não sobrepor
+          if (lastWasChord && lastChordEndPos >= pos) {
+            pos = lastChordEndPos + 1;
+          }
+
+          chords.push({ chord: inside, pos });
+          lastChordEndPos = pos + inside.length;
+          lastWasChord = true;
+
+          i = close + 1;
+          continue;
+        }
+      }
+    }
+
+    // caractere normal vira lyric
+    lyric += ch;
+    lastWasChord = false;
+    i++;
+  }
+
+  return {
+    lyric: lyric.replace(/\s+$/g, ""),
+    chords,
+  };
+}
+
+/**
+ * Detecta se o texto tem padrão INLINE: [A-G...] no meio da linha.
+ * (não confunde muito com headings porque headings geralmente são linha inteira)
+ */
+function hasInlineChords(rawText: string) {
+  const sample = rawText.slice(0, 20000);
+  return /\[[A-G](?:#|b)?/i.test(sample);
 }
 
 export function buildSearchIndex(params: {
@@ -171,7 +229,7 @@ export function buildSearchIndex(params: {
 }
 
 /**
- * ✅ Parser atual (acorde em cima da letra) — mantido.
+ * ✅ Parser 1: cifra em cima da letra (seu formato antigo)
  */
 export function parseSongFromChordAboveText(rawText: string): {
   content: SongContent;
@@ -220,84 +278,16 @@ export function parseSongFromChordAboveText(rawText: string): {
   return { content: { parts }, chordsUsed };
 }
 
-/* =========================================================
-   ✅ NOVO: Parser INLINE  [F]texto [Bb/D][C/E]texto
-   ========================================================= */
-
-function hasInlineChords(rawText: string) {
-  // precisa ter pelo menos um [X] que seja acorde válido
-  const lines = normalizeLine(rawText).split("\n");
-  for (const l of lines.slice(0, 80)) {
-    // pega coisas dentro de []
-    const re = /\[([^\]]+)\]/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(l))) {
-      const inside = String(m[1] ?? "").trim();
-      if (looksLikeChordToken(inside)) return true;
-    }
-  }
-  return false;
-}
-
-function parseInlineLine(lineRaw: string): SongLine {
-  const line = normalizeLine(lineRaw);
-
-  const chords: SongChordToken[] = [];
-  let lyric = "";
-  let lyricPos = 0;
-
-  // varre a linha e captura [ACORDE]
-  const re = /\[([^\]]+)\]/g;
-  let lastIndex = 0;
-  let m: RegExpExecArray | null;
-
-  while ((m = re.exec(line))) {
-    const before = line.slice(lastIndex, m.index);
-    lyric += before;
-    lyricPos += before.length;
-
-    const inside = String(m[1] ?? "").trim();
-
-    // se for acorde válido, vira token
-    // se não for (ex [VERSO]) deixa como texto mesmo (mantendo brackets)
-    if (looksLikeChordToken(inside)) {
-      chords.push({ chord: inside, pos: lyricPos });
-    } else {
-      // preserva como texto literal (inclui colchetes)
-      const literal = `[${inside}]`;
-      lyric += literal;
-      lyricPos += literal.length;
-    }
-
-    lastIndex = m.index + m[0].length;
-  }
-
-  // resto
-  const rest = line.slice(lastIndex);
-  lyric += rest;
-
-  // limpa final, mas mantém espaços do meio (importante pra colunas)
-  lyric = lyric.replace(/\s+$/g, "");
-
-  // remove duplicados exatos
-  const seen = new Set<string>();
-  const chordsFiltered = chords.filter((c) => {
-    const key = `${c.pos}|${c.chord}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  return { lyric, chords: chordsFiltered };
-}
-
+/**
+ * ✅ Parser 2: inline [C]letra
+ */
 export function parseSongFromInlineChordText(rawText: string): {
   content: SongContent;
   chordsUsed: string[];
 } {
   const lines = normalizeLine(rawText)
     .split("\n")
-    .map((l) => l.replace(/\s+$/g, ""));
+    .map((l) => l.replace(/\s+$/g, "")); // trimEnd
 
   const parts: SongPart[] = [];
   let currentPart: SongPart = { type: "GERAL", title: null, lines: [] };
@@ -307,9 +297,10 @@ export function parseSongFromInlineChordText(rawText: string): {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
+    const trimmed = line.trim();
+    if (!trimmed) continue;
 
-    // headings continuam funcionando:
-    // [VERSO], [INTRO], [REFRAO], etc.
+    // headings (ex: [VERSO]) continuam funcionando
     const heading = parseHeading(line);
     if (heading) {
       currentPart = { type: heading.type, title: heading.title ?? null, lines: [] };
@@ -317,23 +308,18 @@ export function parseSongFromInlineChordText(rawText: string): {
       continue;
     }
 
-    if (!line.trim()) continue;
-
-    const parsed = parseInlineLine(line);
-
-    // soma chordsUsed
+    const parsed = parseInlineChordLine(line);
     parsed.chords.forEach((c) => chordsSet.add(c.chord));
 
     currentPart.lines.push(parsed);
   }
 
-  return { content: { parts }, chordsUsed: Array.from(chordsSet) };
+  const chordsUsed = Array.from(chordsSet);
+  return { content: { parts }, chordsUsed };
 }
 
 /**
- * ✅ Parser AUTO:
- * - Se detectar inline, usa inline.
- * - Senão, usa acorde-em-cima (seu atual).
+ * ✅ AUTO: escolhe parser pelo texto
  */
 export function parseSongAuto(rawText: string): {
   content: SongContent;
@@ -344,6 +330,7 @@ export function parseSongAuto(rawText: string): {
     const r = parseSongFromInlineChordText(rawText);
     return { ...r, mode: "inline" };
   }
+
   const r = parseSongFromChordAboveText(rawText);
   return { ...r, mode: "above" };
 }
