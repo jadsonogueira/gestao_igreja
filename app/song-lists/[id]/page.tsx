@@ -197,7 +197,7 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
 
   useEffect(() => {
     load().catch((e) => {
-      toast.error((e as any)?.message || "Erro ao carregar");
+      toast.error(e?.message || "Erro ao carregar");
       setLoading(false);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -247,10 +247,6 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
         </div>
 
         <div className="flex flex-col gap-2 items-end">
-          <a className="border rounded px-3 py-2 text-sm" href={`/song-lists/${params.id}/culto`}>
-            Modo culto
-          </a>
-
           <a className="border rounded px-3 py-2 text-sm" href="/songs">
             Ver cifras
           </a>
@@ -341,12 +337,26 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
             <div key={it.id} className="border rounded p-3">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <a href={`/songs/${s.id}`} className="font-medium underline">
-                    {s.title}
-                  </a>
+                  <div className="font-medium">{s.title}</div>
+
                   <div className="text-xs opacity-70">
                     {s.artist ? `${s.artist} • ` : ""}
                     Tom: <strong>{s.originalKey}</strong>
+                  </div>
+
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <a
+                      className="border rounded px-2 py-1 text-xs"
+                      href={`/songs/${s.id}`}
+                    >
+                      Editar
+                    </a>
+                    <a
+                      className="border rounded px-2 py-1 text-xs"
+                      href={`/songs/${s.id}/culto`}
+                    >
+                      Culto
+                    </a>
                   </div>
                 </div>
 
