@@ -16,7 +16,12 @@ function normalizeTags(input: string) {
 type ImportResponse =
   | {
       success: true;
-      data: { id: string; detectedKey: string | null; originalKeyUsed: string };
+      data: {
+        id: string;
+        detectedKey: string | null;
+        originalKeyUsed: string;
+        mode?: "inline" | "above";
+      };
     }
   | { success: false; error?: string };
 
@@ -56,7 +61,6 @@ export default function ImportSongPage() {
           artist: artist.trim() || null,
           rawText: txt,
           tags,
-          // originalKey é opcional (backend detecta)
         }),
       });
 
@@ -75,11 +79,19 @@ export default function ImportSongPage() {
 
       const used = json.data.originalKeyUsed;
       const detected = json.data.detectedKey;
+      const mode = json.data.mode ?? null;
+
+      const modeLabel =
+        mode === "inline"
+          ? "inline ([C]letra)"
+          : mode === "above"
+          ? "acordes acima"
+          : "auto";
 
       if (!detected) {
-        toast.success(`Importado! Tom definido como ${used} (não foi possível detectar automaticamente).`);
+        toast.success(`Importado! Tom: ${used}. Parser: ${modeLabel}`);
       } else {
-        toast.success(`Importado! Tom detectado: ${used}`);
+        toast.success(`Importado! Tom detectado: ${used}. Parser: ${modeLabel}`);
       }
 
       router.push(`/songs/${id}`);
@@ -92,31 +104,28 @@ export default function ImportSongPage() {
 
   return (
     <main className="mx-auto max-w-3xl p-4 space-y-4">
-      {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Importar cifra</h1>
           <div className="text-sm opacity-70">
-            Cole o texto bruto (ex: Cifra Club). O sistema tenta detectar o tom automaticamente.
+            Aceita 2 formatos:
+            <br />• <span className="font-mono">A9 D/A</span> em cima da letra (clássico)
+            <br />• <span className="font-mono">[F]Ele é exaltado...</span> (inline)
           </div>
         </div>
 
-        <Link
-          href="/songs"
-          className="border rounded px-3 py-2 text-sm hover:bg-gray-50 transition"
-        >
+        <Link href="/songs" className="border rounded px-3 py-2 text-sm hover:bg-gray-50 transition">
           Voltar
         </Link>
       </div>
 
-      {/* Form */}
       <div className="border rounded p-4 space-y-4">
         <div className="space-y-1">
           <label className="text-sm font-medium">Título *</label>
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Ex: Tu És / Sonda-me"
+            placeholder="Ex: Aclame ao Senhor"
             className="w-full border rounded px-3 py-2 text-sm"
           />
         </div>
@@ -126,7 +135,7 @@ export default function ImportSongPage() {
           <input
             value={artist}
             onChange={(e) => setArtist(e.target.value)}
-            placeholder="Ex: Morada / Fernandinho"
+            placeholder="Ex: Diante do Trono"
             className="w-full border rounded px-3 py-2 text-sm"
           />
         </div>
@@ -146,7 +155,7 @@ export default function ImportSongPage() {
           <textarea
             value={rawText}
             onChange={(e) => setRawText(e.target.value)}
-            placeholder="Cole aqui o conteúdo do Cifra Club..."
+            placeholder="Cole aqui (Cifra Club ou formato inline [C]letra)..."
             className="w-full border rounded px-3 py-2 text-sm min-h-[320px] font-mono"
           />
           <div className="text-xs opacity-70">
@@ -155,10 +164,7 @@ export default function ImportSongPage() {
         </div>
 
         <div className="flex items-center justify-end gap-2 pt-2">
-          <Link
-            href="/songs"
-            className="border rounded px-3 py-2 text-sm hover:bg-gray-50 transition"
-          >
+          <Link href="/songs" className="border rounded px-3 py-2 text-sm hover:bg-gray-50 transition">
             Cancelar
           </Link>
 
