@@ -15,6 +15,10 @@ function normalizeTags(input: string) {
     .map((t) => t.replace(/\s+/g, " "));
 }
 
+type CreateSongResponse =
+  | { success: true; data: { id: string } }
+  | { success: false; error?: string };
+
 export default function NewSongPage() {
   const router = useRouter();
 
@@ -46,19 +50,23 @@ export default function NewSongPage() {
         }),
       });
 
-      const json = await res.json().catch(() => null);
+      const json = (await res.json().catch(() => null)) as CreateSongResponse | null;
 
       if (!res.ok) {
+        throw new Error((json as any)?.error || "Erro ao criar cifra.");
+      }
+
+      if (!json || json.success !== true) {
         throw new Error(json?.error || "Erro ao criar cifra.");
       }
 
-      // esperamos { id: "..." }
-      if (!json?.id) {
-        throw new Error("Resposta inválida do servidor (faltou id).");
+      const id = json?.data?.id;
+      if (!id) {
+        throw new Error("Resposta inválida do servidor (faltou data.id).");
       }
 
       toast.success("Cifra criada!");
-      router.push(`/songs/${json.id}`);
+      router.push(`/songs/${id}`);
     } catch (e: any) {
       toast.error(e?.message || "Erro ao criar.");
     } finally {
