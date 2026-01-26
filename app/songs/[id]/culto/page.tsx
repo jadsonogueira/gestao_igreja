@@ -19,12 +19,18 @@ type SongDetail = {
   updatedAt: string;
 };
 
+function partLabel(p: SongPart) {
+  const t = (p.title ?? "").trim();
+  if (t) return t;
+  return p.type;
+}
+
 function buildChordOverlay(lyric: string, chords: SongChordToken[]) {
   if (!chords?.length) return "";
 
   const maxNeeded = Math.max(
     lyric.length,
-    ...chords.map((c) => (c.pos ?? 0) + (c.chord?.length ?? 0))
+    ...chords.map((c) => (c.pos ?? 0) + (String(c.chord ?? "").length || 0))
   );
 
   const arr = Array(Math.max(0, maxNeeded)).fill(" ");
@@ -38,12 +44,6 @@ function buildChordOverlay(lyric: string, chords: SongChordToken[]) {
   }
 
   return arr.join("");
-}
-
-function partLabel(p: SongPart) {
-  const t = (p.title ?? "").trim();
-  if (t) return t;
-  return p.type;
 }
 
 async function requestWakeLock(): Promise<any | null> {
@@ -64,17 +64,20 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
   const [transpose, setTranspose] = useState(0);
   const accidentalPref: AccidentalPref = "sharp";
 
-  // ✅ modo culto: defaults mais “tocáveis”
+  // ✅ controles (minimalistas)
   const [showChords, setShowChords] = useState(true);
-  const [fontSize, setFontSize] = useState(16); // ↓ menor por padrão
-  const [lineHeight, setLineHeight] = useState(1.35); // ↓ mais compacto por padrão
+
+  // banana-style: menor e mais “colado”
+  const [fontSize, setFontSize] = useState(18); // letra
+  const [chordSize, setChordSize] = useState(12); // cifra
+  const [tight, setTight] = useState(true); // espaçamento bem compacto
 
   // ✅ wake lock
   const [keepAwake, setKeepAwake] = useState(false);
   const wakeLockRef = useRef<any | null>(null);
 
-  // ✅ barra superior “escondida” por padrão
-  const [controlsOpen, setControlsOpen] = useState(false);
+  // ✅ painel (para esconder a barra superior)
+  const [showHud, setShowHud] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -125,188 +128,189 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
 
   const parts = useMemo(() => song?.content?.parts ?? [], [song]);
 
+  // ✅ valores compactos estilo banana
+  const lyricLineHeight = tight ? 1.2 : 1.45;
+  const chordLineHeight = tight ? 1.0 : 1.2;
+
   return (
-    <main className="mx-auto max-w-4xl p-4">
-      {/* ✅ Botão flutuante para abrir/fechar controles (barra escondida por padrão) */}
-      <div className="fixed right-4 top-4 z-50 flex items-center gap-2">
-        <button
-          type="button"
-          className="rounded-full border bg-white/90 backdrop-blur px-3 py-2 text-sm shadow-sm hover:bg-white"
-          onClick={() => setControlsOpen((v) => !v)}
-          title={controlsOpen ? "Fechar controles" : "Abrir controles"}
-        >
-          ⚙️
-        </button>
-      </div>
+    <main className="mx-auto max-w-4xl px-3 py-3">
+      {/* HUD minimalista (pode esconder) */}
+      <div className="sticky top-0 z-10">
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setShowHud((v) => !v)}
+            className="rounded-full border bg-white/90 px-3 py-2 text-sm shadow-sm backdrop-blur"
+            title={showHud ? "Fechar controles" : "Abrir controles"}
+          >
+            {showHud ? "Fechar" : "⚙️"}
+          </button>
+        </div>
 
-      {/* ✅ Painel de controles (colapsável) */}
-      {controlsOpen ? (
-        <div className="sticky top-0 z-40 mb-4 rounded-xl border bg-white/90 backdrop-blur p-3 shadow-sm">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <a className="text-sm opacity-70 underline" href={`/songs/${params.id}`}>
-                ← Voltar
-              </a>
+        {showHud ? (
+          <div className="mt-2 rounded-xl border bg-white/95 p-3 shadow-sm backdrop-blur">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <a className="text-sm opacity-70 underline" href={`/songs/${params.id}`}>
+                  ← Voltar
+                </a>
 
-              <div className="mt-1 text-xl font-semibold truncate">
-                {song?.title ?? "Cifra"}
-              </div>
-              <div className="text-sm opacity-80">
-                {song?.artist ? `${song.artist} • ` : ""}
-                Tom salvo: <strong>{song?.originalKey ?? "-"}</strong>
-                {transpose !== 0 ? (
-                  <>
-                    {" "}
-                    • Transp.:{" "}
-                    <span className="font-mono">
-                      {transpose > 0 ? `+${transpose}` : transpose}
-                    </span>
-                  </>
-                ) : null}
-              </div>
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  className="rounded-lg border px-3 py-2 text-sm"
-                  onClick={() => setShowChords((v) => !v)}
-                  title="Mostrar/ocultar cifras"
-                >
-                  {showChords ? "Cifras ✓" : "Cifras"}
-                </button>
-
-                <button
-                  className="rounded-lg border px-3 py-2 text-sm"
-                  onClick={() => setKeepAwake((v) => !v)}
-                  title="Tentar manter a tela ligada"
-                >
-                  {keepAwake ? "Tela ✓" : "Tela"}
-                </button>
-
-                <div className="flex gap-2">
-                  <button
-                    className="rounded-lg border px-3 py-2 text-sm"
-                    onClick={() => setFontSize((v) => Math.max(12, v - 1))}
-                    title="Diminuir fonte"
-                  >
-                    A-
-                  </button>
-                  <button
-                    className="rounded-lg border px-3 py-2 text-sm"
-                    onClick={() => setFontSize((v) => Math.min(28, v + 1))}
-                    title="Aumentar fonte"
-                  >
-                    A+
-                  </button>
+                <div className="mt-1 text-xl font-semibold truncate">{song?.title ?? "Cifra"}</div>
+                <div className="text-sm opacity-80">
+                  {song?.artist ? `${song.artist} • ` : ""}
+                  Tom: <strong>{song?.originalKey ?? "-"}</strong>{" "}
+                  {transpose !== 0 ? (
+                    <>
+                      • Transp.:{" "}
+                      <span className="font-mono">{transpose > 0 ? `+${transpose}` : transpose}</span>
+                    </>
+                  ) : null}
                 </div>
 
-                <div className="flex gap-2">
+                <div className="mt-2 flex flex-wrap gap-2">
                   <button
                     className="rounded-lg border px-3 py-2 text-sm"
-                    onClick={() =>
-                      setLineHeight((v) => Math.max(1.15, Number((v - 0.05).toFixed(2))))
-                    }
-                    title="Menos espaçamento"
+                    onClick={() => setShowChords((v) => !v)}
+                    title="Mostrar/ocultar cifras"
                   >
-                    ⇣
+                    {showChords ? "Cifras ✓" : "Cifras"}
                   </button>
-                  <button
-                    className="rounded-lg border px-3 py-2 text-sm"
-                    onClick={() =>
-                      setLineHeight((v) => Math.min(1.9, Number((v + 0.05).toFixed(2))))
-                    }
-                    title="Mais espaçamento"
-                  >
-                    ⇡
-                  </button>
-                </div>
 
+                  <button
+                    className="rounded-lg border px-3 py-2 text-sm"
+                    onClick={() => setKeepAwake((v) => !v)}
+                    title="Tentar manter a tela ligada"
+                  >
+                    {keepAwake ? "Tela ✓" : "Tela"}
+                  </button>
+
+                  <button
+                    className="rounded-lg border px-3 py-2 text-sm"
+                    onClick={() => setTight((v) => !v)}
+                    title="Alternar espaçamento"
+                  >
+                    {tight ? "Compacto ✓" : "Compacto"}
+                  </button>
+
+                  <div className="flex gap-2">
+                    <button
+                      className="rounded-lg border px-3 py-2 text-sm"
+                      onClick={() => setFontSize((v) => Math.max(14, v - 1))}
+                      title="Diminuir letra"
+                    >
+                      A-
+                    </button>
+                    <button
+                      className="rounded-lg border px-3 py-2 text-sm"
+                      onClick={() => setFontSize((v) => Math.min(34, v + 1))}
+                      title="Aumentar letra"
+                    >
+                      A+
+                    </button>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      className="rounded-lg border px-3 py-2 text-sm"
+                      onClick={() => setChordSize((v) => Math.max(10, v - 1))}
+                      title="Diminuir cifra"
+                    >
+                      c-
+                    </button>
+                    <button
+                      className="rounded-lg border px-3 py-2 text-sm"
+                      onClick={() => setChordSize((v) => Math.min(18, v + 1))}
+                      title="Aumentar cifra"
+                    >
+                      c+
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
                 <button
                   className="rounded-lg border px-3 py-2 text-sm"
-                  onClick={() => setControlsOpen(false)}
-                  title="Fechar controles"
+                  onClick={() => setTranspose((v) => v - 1)}
+                  title="Transpor -1"
                 >
-                  Fechar
+                  -1
+                </button>
+                <button
+                  className="rounded-lg border px-3 py-2 text-sm"
+                  onClick={() => setTranspose(0)}
+                  title="Voltar ao tom salvo"
+                >
+                  0
+                </button>
+                <button
+                  className="rounded-lg border px-3 py-2 text-sm"
+                  onClick={() => setTranspose((v) => v + 1)}
+                  title="Transpor +1"
+                >
+                  +1
                 </button>
               </div>
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                className="rounded-lg border px-3 py-2 text-sm"
-                onClick={() => setTranspose((v) => v - 1)}
-                title="Transpor -1"
-              >
-                -1
-              </button>
-              <button
-                className="rounded-lg border px-3 py-2 text-sm"
-                onClick={() => setTranspose(0)}
-                title="Voltar ao tom salvo"
-              >
-                0
-              </button>
-              <button
-                className="rounded-lg border px-3 py-2 text-sm"
-                onClick={() => setTranspose((v) => v + 1)}
-                title="Transpor +1"
-              >
-                +1
-              </button>
             </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
       {loading ? (
-        <div className="border rounded p-4 text-sm opacity-70">Carregando...</div>
+        <div className="mt-3 text-sm opacity-70">Carregando...</div>
       ) : null}
 
       {!loading && !parts.length ? (
-        <div className="border rounded p-4 text-sm opacity-70">
-          Essa cifra não tem conteúdo (parts) ainda.
-        </div>
+        <div className="mt-3 text-sm opacity-70">Essa cifra não tem conteúdo (parts) ainda.</div>
       ) : null}
 
-      {/* ✅ Conteúdo: mais compacto, menos “caixa”, mais tocar/rolar */}
-      <div className="space-y-7">
+      {/* ✅ banana-style: sem cards, sem borda, fluxo contínuo */}
+      <div className="mt-3">
         {parts.map((part, partIdx) => (
-          <section key={`${part.type}-${partIdx}`} className="space-y-2">
-            <div className="flex items-center gap-2">
+          <section key={`${part.type}-${partIdx}`} className="mb-5">
+            {/* cabeçalho do trecho */}
+            <div className="mb-2 flex items-center gap-2">
               <div className="text-xs font-semibold uppercase tracking-wide opacity-70">
-                {partLabel(part)}
+                [{partLabel(part)}]
               </div>
               <div className="h-px flex-1 bg-black/10 dark:bg-white/10" />
             </div>
 
-            <div className="space-y-3">
+            <div>
               {part.lines.map((line, lineIdx) => {
-                const transposedTokens = transposeChordTokens(
+                const tokensShown = transposeChordTokens(
                   line.chords ?? [],
                   transpose,
                   accidentalPref
                 );
 
                 const chordOverlay = showChords
-                  ? buildChordOverlay(line.lyric ?? "", transposedTokens)
+                  ? buildChordOverlay(line.lyric ?? "", tokensShown)
                   : "";
 
                 return (
-                  <div key={lineIdx} className="rounded-lg border p-3">
+                  <div key={lineIdx} className="mb-3">
+                    {/* linha de cifra (compacta e colada) */}
                     {chordOverlay ? (
                       <div
-                        className="whitespace-pre font-mono opacity-90"
+                        className="whitespace-pre font-mono opacity-90 overflow-hidden"
                         style={{
-                          fontSize: Math.max(11, fontSize - 3),
-                          lineHeight,
+                          fontSize: chordSize,
+                          lineHeight: chordLineHeight,
+                          marginBottom: tight ? 2 : 6,
                         }}
                       >
                         {chordOverlay}
                       </div>
                     ) : null}
 
+                    {/* linha de letra — importante: NÃO quebrar linha (pra não bagunçar a coluna) */}
                     <div
-                      className="whitespace-pre font-mono"
-                      style={{ fontSize, lineHeight }}
+                      className="whitespace-pre font-mono overflow-hidden"
+                      style={{
+                        fontSize,
+                        lineHeight: lyricLineHeight,
+                      }}
                     >
                       {line.lyric ?? ""}
                     </div>
