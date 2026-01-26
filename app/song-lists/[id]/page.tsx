@@ -87,9 +87,11 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
 
+  const listId = params.id;
+
   async function load() {
     setLoading(true);
-    const res = await fetch(`/api/song-lists/${params.id}`, { cache: "no-store" });
+    const res = await fetch(`/api/song-lists/${listId}`, { cache: "no-store" });
     const json = await res.json();
     if (!res.ok || !json?.success) throw new Error(json?.error || "Erro");
     setData(json.data);
@@ -99,7 +101,7 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
   async function removeSong(songId: string) {
     const t = toast.loading("Removendo...");
     try {
-      const res = await fetch(`/api/song-lists/${params.id}/remove`, {
+      const res = await fetch(`/api/song-lists/${listId}/remove`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ songId }),
@@ -119,7 +121,7 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
 
     const t = toast.loading("Reordenando...");
     try {
-      const res = await fetch(`/api/song-lists/${params.id}/reorder`, {
+      const res = await fetch(`/api/song-lists/${listId}/reorder`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ itemId, direction }),
@@ -138,7 +140,7 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
   async function duplicateList() {
     const t = toast.loading("Duplicando lista...");
     try {
-      const res = await fetch(`/api/song-lists/${params.id}/duplicate`, {
+      const res = await fetch(`/api/song-lists/${listId}/duplicate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: dupName.trim() || undefined }),
@@ -162,7 +164,7 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
 
     const t = toast.loading("Renomeando...");
     try {
-      const res = await fetch(`/api/song-lists/${params.id}`, {
+      const res = await fetch(`/api/song-lists/${listId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
@@ -185,7 +187,7 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
 
     const t = toast.loading("Excluindo...");
     try {
-      const res = await fetch(`/api/song-lists/${params.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/song-lists/${listId}`, { method: "DELETE" });
       const json = await res.json();
       if (!res.ok || !json?.success) throw new Error(json?.error || "Erro");
       toast.success("Lista excluída!", { id: t });
@@ -197,11 +199,11 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
 
   useEffect(() => {
     load().catch((e) => {
-      toast.error(e?.message || "Erro ao carregar");
+      toast.error((e as any)?.message || "Erro ao carregar");
       setLoading(false);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.id]);
+  }, [listId]);
 
   const items = useMemo(() => data?.items ?? [], [data]);
 
@@ -243,7 +245,7 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
             ← Voltar
           </a>
           <h1 className="text-2xl font-semibold mt-1">{data?.name ?? "Lista"}</h1>
-          <div className="text-xs opacity-60">ID: {params.id}</div>
+          <div className="text-xs opacity-60">ID: {listId}</div>
         </div>
 
         <div className="flex flex-col gap-2 items-end">
@@ -347,13 +349,14 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
                   <div className="mt-2 flex flex-wrap gap-2">
                     <a
                       className="border rounded px-2 py-1 text-xs"
-                      href={`/songs/${s.id}`}
+                      href={`/songs/${s.id}?listId=${encodeURIComponent(listId)}`}
                     >
                       Editar
                     </a>
+
                     <a
                       className="border rounded px-2 py-1 text-xs"
-                      href={`/songs/${s.id}/culto`}
+                      href={`/songs/${s.id}/culto?listId=${encodeURIComponent(listId)}`}
                     >
                       Culto
                     </a>
