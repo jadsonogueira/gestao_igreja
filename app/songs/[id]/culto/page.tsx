@@ -57,6 +57,7 @@ function padRight(s: string, len: number) {
 
 /**
  * ✅ Quebra por COLUNAS (cols) e mantém cifra+letra sempre alinhadas.
+ * (a cifra acompanha a letra na quebra)
  */
 function wrapAligned(
   lyric: string,
@@ -106,11 +107,13 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
 
   const [showChords, setShowChords] = useState(true);
 
-  // ✅ fonte padrão menor
-  // IMPORTANTÍSSIMO: UM fontSize para cifra+letra (não quebra o alinhamento)
-  const [fontSize, setFontSize] = useState(10); // era 20
-  const [lineHeight, setLineHeight] = useState(1.32);
-  const [cols, setCols] = useState(40);
+  /**
+   * ✅ Fonte padrão do culto (-4 pontos)
+   * Importante: 1 ÚNICO fontSize para cifra+letra, pra não quebrar o alinhamento.
+   */
+  const [fontSize, setFontSize] = useState(12);
+  const [lineHeight, setLineHeight] = useState(1.15);
+  const [cols, setCols] = useState(45);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -168,51 +171,33 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
 
   return (
     <main className="mx-auto max-w-3xl px-3 py-3">
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="min-w-0">
-          <a className="text-sm opacity-70 underline" href={`/songs/${params.id}`}>
-            ← Voltar
-          </a>
+      {/* ✅ TOPO (limpo): Voltar + título + ⚙️ */}
+      <div className="mb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            {/* ✅ volta pro MENU cifra */}
+            <a className="text-sm opacity-70 underline" href="/songs">
+              ← Voltar
+            </a>
 
-          <div className="mt-1 text-xl font-semibold truncate">
-            {song?.title ?? "Cifra"}
+            <div className="mt-1 text-xl font-semibold truncate">
+              {song?.title ?? "Cifra"}
+            </div>
+
+            <div className="text-sm opacity-80">
+              {song?.artist ? `${song.artist} • ` : ""}
+              Tom salvo: <strong>{song?.originalKey ?? "-"}</strong>
+              {transpose !== 0 ? (
+                <>
+                  {" "}
+                  • Transp.:{" "}
+                  <span className="font-mono">
+                    {transpose > 0 ? `+${transpose}` : transpose}
+                  </span>
+                </>
+              ) : null}
+            </div>
           </div>
-
-          <div className="text-sm opacity-80">
-            {song?.artist ? `${song.artist} • ` : ""}
-            Tom salvo: <strong>{song?.originalKey ?? "-"}</strong>
-            {transpose !== 0 ? (
-              <>
-                {" "}
-                • Transp.:{" "}
-                <span className="font-mono">{transpose > 0 ? `+${transpose}` : transpose}</span>
-              </>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            className="rounded-lg border px-3 py-2 text-sm"
-            onClick={() => setTranspose((v) => v - 1)}
-            title="Transpor -1"
-          >
-            -1
-          </button>
-          <button
-            className="rounded-lg border px-3 py-2 text-sm"
-            onClick={() => setTranspose(0)}
-            title="Voltar ao tom salvo"
-          >
-            0
-          </button>
-          <button
-            className="rounded-lg border px-3 py-2 text-sm"
-            onClick={() => setTranspose((v) => v + 1)}
-            title="Transpor +1"
-          >
-            +1
-          </button>
 
           <button
             className="rounded-full border w-10 h-10 flex items-center justify-center"
@@ -223,89 +208,119 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
             ⚙️
           </button>
         </div>
-      </div>
 
-      {settingsOpen ? (
-        <div className="mb-3 rounded-xl border p-3 bg-white/95 dark:bg-black/95">
-          <div className="flex flex-wrap gap-2 items-center">
-            <button
-              className="rounded-lg border px-3 py-2 text-sm"
-              onClick={() => setShowChords((v) => !v)}
-              title="Mostrar/ocultar cifras"
-            >
-              {showChords ? "Cifras ✓" : "Cifras ✗"}
-            </button>
+        {/* ✅ Painel escondido (⚙️) — agora aqui dentro fica a transposição */}
+        {settingsOpen ? (
+          <div className="mt-3 rounded-xl border p-3 bg-white/95 dark:bg-black/95">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {/* cifras */}
+              <button
+                className="rounded-lg border px-3 py-2 text-sm"
+                onClick={() => setShowChords((v) => !v)}
+                title="Mostrar/ocultar cifras"
+              >
+                {showChords ? "Cifras ✓" : "Cifras ✗"}
+              </button>
 
-            <button
-              className="rounded-lg border px-3 py-2 text-sm"
-              onClick={() => setKeepAwake((v) => !v)}
-              title="Tentar manter a tela ligada"
-            >
-              {keepAwake ? "Tela ✓" : "Tela"}
-            </button>
+              {/* wake lock */}
+              <button
+                className="rounded-lg border px-3 py-2 text-sm"
+                onClick={() => setKeepAwake((v) => !v)}
+                title="Tentar manter a tela ligada"
+              >
+                {keepAwake ? "Tela ✓" : "Tela"}
+              </button>
 
-            {/* fonte (um controle só) */}
-            <button
-              className="rounded-lg border px-3 py-2 text-sm"
-              onClick={() => setFontSize((v) => Math.max(14, v - 2))}
-              title="Diminuir fonte"
-            >
-              A-
-            </button>
-            <button
-              className="rounded-lg border px-3 py-2 text-sm"
-              onClick={() => setFontSize((v) => Math.min(34, v + 2))}
-              title="Aumentar fonte"
-            >
-              A+
-            </button>
+              {/* fonte (um controle só) */}
+              <button
+                className="rounded-lg border px-3 py-2 text-sm"
+                onClick={() => setFontSize((v) => Math.max(10, v - 2))}
+                title="Diminuir fonte"
+              >
+                A-
+              </button>
+              <button
+                className="rounded-lg border px-3 py-2 text-sm"
+                onClick={() => setFontSize((v) => Math.min(28, v + 2))}
+                title="Aumentar fonte"
+              >
+                A+
+              </button>
 
-            {/* linhas */}
-            <button
-              className="rounded-lg border px-3 py-2 text-sm"
-              onClick={() => setLineHeight((v) => Math.max(1.1, Number((v - 0.05).toFixed(2))))}
-              title="Menos espaçamento"
-            >
-              ⇣
-            </button>
-            <button
-              className="rounded-lg border px-3 py-2 text-sm"
-              onClick={() => setLineHeight((v) => Math.min(2.0, Number((v + 0.05).toFixed(2))))}
-              title="Mais espaçamento"
-            >
-              ⇡
-            </button>
+              {/* line height */}
+              <button
+                className="rounded-lg border px-3 py-2 text-sm"
+                onClick={() =>
+                  setLineHeight((v) => Math.max(1.1, Number((v - 0.05).toFixed(2))))
+                }
+                title="Menos espaçamento"
+              >
+                Linhas ⇣
+              </button>
+              <button
+                className="rounded-lg border px-3 py-2 text-sm"
+                onClick={() =>
+                  setLineHeight((v) => Math.min(1.8, Number((v + 0.05).toFixed(2))))
+                }
+                title="Mais espaçamento"
+              >
+                Linhas ⇡
+              </button>
 
-            {/* colunas */}
-            <button
-              className="rounded-lg border px-3 py-2 text-sm"
-              onClick={() => setCols((v) => Math.max(20, v - 2))}
-              title="Menos colunas"
-            >
-              ←
-            </button>
-            <button
-              className="rounded-lg border px-3 py-2 text-sm"
-              onClick={() => setCols((v) => Math.min(80, v + 2))}
-              title="Mais colunas"
-            >
-              →
-            </button>
+              {/* cols */}
+              <button
+                className="rounded-lg border px-3 py-2 text-sm"
+                onClick={() => setCols((v) => Math.max(20, v - 2))}
+                title="Menos colunas"
+              >
+                Cols ←
+              </button>
+              <button
+                className="rounded-lg border px-3 py-2 text-sm"
+                onClick={() => setCols((v) => Math.min(90, v + 2))}
+                title="Mais colunas"
+              >
+                Cols →
+              </button>
 
-            <div className="text-xs opacity-70 ml-auto">
-              {cols} cols • lh {lineHeight.toFixed(2)}
+              {/* ✅ Transposição agora fica aqui dentro */}
+              <button
+                className="rounded-lg border px-3 py-2 text-sm"
+                onClick={() => setTranspose((v) => v - 1)}
+                title="Transpor -1"
+              >
+                -1
+              </button>
+              <button
+                className="rounded-lg border px-3 py-2 text-sm"
+                onClick={() => setTranspose(0)}
+                title="Voltar ao tom salvo"
+              >
+                0
+              </button>
+              <button
+                className="rounded-lg border px-3 py-2 text-sm col-span-2 sm:col-span-1"
+                onClick={() => setTranspose((v) => v + 1)}
+                title="Transpor +1"
+              >
+                +1
+              </button>
+
+              <button
+                className="rounded-lg border px-3 py-2 text-sm col-span-2 sm:col-span-3"
+                onClick={() => setSettingsOpen(false)}
+                title="Fechar"
+              >
+                Fechar
+              </button>
             </div>
 
-            <button
-              className="rounded-lg border px-3 py-2 text-sm"
-              onClick={() => setSettingsOpen(false)}
-              title="Fechar"
-            >
-              Fechar
-            </button>
+            <div className="mt-2 text-xs opacity-70">
+              {cols} cols • lh {lineHeight.toFixed(2)} • fonte {fontSize}px
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
       {loading ? (
         <div className="border rounded p-3 text-sm opacity-70">Carregando...</div>
@@ -317,6 +332,7 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
         </div>
       ) : null}
 
+      {/* ✅ CONTEÚDO (estilo banana-cifras: compacto, sem cards por linha) */}
       <div className="space-y-5">
         {parts.map((part, partIdx) => (
           <section key={`${part.type}-${partIdx}`} className="space-y-2">
@@ -345,7 +361,7 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
                             style={{
                               fontSize,
                               lineHeight,
-                              color: "#2563EB", // azul (Tailwind: blue-600)
+                              color: "#2563EB", // azul (blue-600)
                             }}
                           >
                             {seg.chordLine}
@@ -361,6 +377,7 @@ export default function SongCultoPage({ params }: { params: { id: string } }) {
                       </div>
                     ))}
 
+                    {/* espaçozinho bem pequeno entre blocos */}
                     <div style={{ height: 6 }} />
                   </div>
                 );
