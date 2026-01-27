@@ -23,16 +23,16 @@ type QualityPreset =
 type QualityMode = "preset" | "custom";
 
 type ParsedChordFull = {
-  root: string; // A-G
-  acc: Accidental; // b/#/natural
+  root: string;
+  acc: Accidental;
 
   mode: QualityMode;
-  preset: QualityPreset; // quando mode="preset"
-  customSuffix: string; // quando mode="custom" (ex: "7(5-)", "m7(b5)", "7/9", "maj9"...)
+  preset: QualityPreset;
+  customSuffix: string;
 
-  bassEnabled: boolean; // slash-bass real (C/F)
-  bassRoot: string; // A-G
-  bassAcc: Accidental; // b/#/natural
+  bassEnabled: boolean;
+  bassRoot: string;
+  bassAcc: Accidental;
 };
 
 const ROOTS = ["C", "D", "E", "F", "G", "A", "B"] as const;
@@ -54,7 +54,6 @@ const QUALITY_OPTIONS: Array<{ value: QualityPreset; label: string }> = [
   { value: "aug", label: "aug" },
 ];
 
-// ✅ atalhos comuns em gospel/worship (inclui C7/9)
 const CUSTOM_QUICK: Array<{ value: string; label: string }> = [
   { value: "7/9", label: "7/9" },
   { value: "m7/9", label: "m7/9" },
@@ -92,7 +91,6 @@ function buildChord(p: ParsedChordFull) {
 
   let out = `${root}${suffix}`;
 
-  // ✅ slash-bass real (C/F, D/F#)
   if (p.bassEnabled && p.bassRoot) {
     const bass = `${p.bassRoot}${accToText(p.bassAcc ?? "natural")}`;
     out = `${out}/${bass}`;
@@ -101,21 +99,13 @@ function buildChord(p: ParsedChordFull) {
   return out;
 }
 
-/**
- * Parser permissivo:
- * - Root: A-G + (#|b)?
- * - Sufixo: qualquer coisa (inclui "7/9", "m7(b5)", "7(#11)" etc.)
- * - Slash-bass: só se a parte após "/" for uma NOTA (A-G com #/b). Senão, assume que é tensão (ex: 7/9).
- */
 function safeParseChord(chord: string): ParsedChordFull {
   const raw = normalizeSpaces(chord);
 
-  // split por "/" (mas cuidado com 7/9)
   const parts = raw.split("/").map((s) => normalizeSpaces(s));
   const mainRaw = parts[0] ?? "";
   const maybeAfterSlash = parts[1] ?? "";
 
-  // main root + sufixo
   const m = mainRaw.match(/^([A-G])(#|b)?(.*)$/);
   if (!m) {
     return {
@@ -134,8 +124,8 @@ function safeParseChord(chord: string): ParsedChordFull {
   const acc: Accidental =
     m[2] === "#" ? "sharp" : m[2] === "b" ? "flat" : "natural";
 
-  // se tinha "/" e o depois NÃO é nota, isso faz parte do sufixo: ex "7/9"
-  const afterIsBassNote = !!maybeAfterSlash && /^([A-G])(#|b)?$/.test(maybeAfterSlash);
+  const afterIsBassNote =
+    !!maybeAfterSlash && /^([A-G])(#|b)?$/.test(maybeAfterSlash);
 
   const restMain = normalizeSpaces(m[3] ?? "");
   const rest =
@@ -155,10 +145,9 @@ function safeParseChord(chord: string): ParsedChordFull {
     preset = rest as QualityPreset;
   } else {
     mode = "custom";
-    customSuffix = rest; // pode ser "7/9", "7(5-)" etc
+    customSuffix = rest;
   }
 
-  // slash-bass real
   let bassEnabled = false;
   let bassRoot = "C";
   let bassAcc: Accidental = "natural";
@@ -236,16 +225,13 @@ export default function ChordPicker(props: {
 
   return (
     <div className="fixed inset-0 z-50">
-      {/* backdrop */}
       <button
         className="absolute inset-0 bg-black/40"
         aria-label="Fechar"
         onClick={onClose}
       />
 
-      {/* sheet */}
       <div className="absolute inset-x-0 bottom-0 mx-auto w-full max-w-3xl rounded-t-2xl border bg-white shadow-xl dark:bg-neutral-950 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:rounded-2xl">
-        {/* ✅ HEADER STICKY: Cancelar/Aplicar sempre visíveis */}
         <div className="sticky top-0 z-10 border-b bg-white/95 p-3 backdrop-blur dark:bg-neutral-950/95 sm:rounded-t-2xl">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -264,10 +250,7 @@ export default function ChordPicker(props: {
             </div>
 
             <div className="flex gap-2 shrink-0">
-              <button
-                className="rounded-lg border px-3 py-2 text-sm"
-                onClick={onClose}
-              >
+              <button className="rounded-lg border px-3 py-2 text-sm" onClick={onClose}>
                 Cancelar
               </button>
               <button
@@ -280,9 +263,8 @@ export default function ChordPicker(props: {
           </div>
         </div>
 
-        {/* ✅ BODY COM SCROLL */}
-        <div className="max-h-[70vh] overflow-auto p-4 sm:max-h-[70vh]">
-          {/* 1) Nota base */}
+        <div className="max-h-[70vh] overflow-auto p-4 pb-6 sm:max-h-[70vh]">
+          {/* Nota */}
           <div className="mb-4">
             <div className="mb-2 text-xs font-semibold opacity-70">Nota</div>
             <div className="flex flex-wrap gap-2">
@@ -300,7 +282,7 @@ export default function ChordPicker(props: {
             </div>
           </div>
 
-          {/* 2) Acidente */}
+          {/* Acidente */}
           <div className="mb-4">
             <div className="mb-2 text-xs font-semibold opacity-70">Acidente</div>
             <div className="flex gap-2">
@@ -319,7 +301,7 @@ export default function ChordPicker(props: {
             </div>
           </div>
 
-          {/* 3) Variação / Sufixo */}
+          {/* Variação */}
           <div className="mb-4">
             <div className="mb-2 text-xs font-semibold opacity-70">Variação</div>
 
@@ -328,7 +310,10 @@ export default function ChordPicker(props: {
                 className={`rounded-lg border px-3 py-2 text-xs font-mono ${
                   mode === "preset" ? "bg-black/5 dark:bg-white/10" : ""
                 }`}
-                onClick={() => setMode("preset")}
+                onClick={() => {
+                  setMode("preset");
+                  setCustomSuffix(""); // ✅ evita mix
+                }}
               >
                 Presets
               </button>
@@ -336,14 +321,16 @@ export default function ChordPicker(props: {
                 className={`rounded-lg border px-3 py-2 text-xs font-mono ${
                   mode === "custom" ? "bg-black/5 dark:bg-white/10" : ""
                 }`}
-                onClick={() => setMode("custom")}
+                onClick={() => {
+                  setMode("custom");
+                  setPreset(""); // ✅ evita mix
+                }}
               >
                 Livre
               </button>
             </div>
 
             {mode === "preset" ? (
-              // ✅ botões menores (layout compacto)
               <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                 {QUALITY_OPTIONS.map((q) => (
                   <button
@@ -351,10 +338,7 @@ export default function ChordPicker(props: {
                     className={`rounded-lg border px-2 py-2 text-sm font-mono ${
                       preset === q.value ? "bg-black/5 dark:bg-white/10" : ""
                     }`}
-                    onClick={() => {
-                      setPreset(q.value);
-                      setCustomSuffix("");
-                    }}
+                    onClick={() => setPreset(q.value)}
                   >
                     {q.label}
                   </button>
@@ -369,7 +353,6 @@ export default function ChordPicker(props: {
                   placeholder="Ex: 7/9, m7(b5), 7(#11), m7(9), maj9..."
                 />
 
-                {/* ✅ atalhos rápidos (inclui 7/9) */}
                 <div className="flex flex-wrap gap-2">
                   {CUSTOM_QUICK.map((q) => (
                     <button
@@ -380,7 +363,6 @@ export default function ChordPicker(props: {
                           : ""
                       }`}
                       onClick={() => setCustomSuffix(q.value)}
-                      title="Aplicar no campo"
                     >
                       {q.label}
                     </button>
@@ -388,14 +370,13 @@ export default function ChordPicker(props: {
                 </div>
 
                 <div className="text-xs opacity-60">
-                  “7/9” aqui é **tensão** (não é baixo). Para inversão use “Baixo
-                  (slash)” abaixo.
+                  “7/9” aqui é tensão. Para inversão use “Baixo (slash)” abaixo.
                 </div>
               </div>
             )}
           </div>
 
-          {/* 4) Baixo / Slash */}
+          {/* Baixo */}
           <div className="mb-2">
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="text-xs font-semibold opacity-70">Baixo (slash)</div>
@@ -405,7 +386,6 @@ export default function ChordPicker(props: {
                   bassEnabled ? "bg-black/5 dark:bg-white/10" : ""
                 }`}
                 onClick={() => setBassEnabled((v) => !v)}
-                title="Ativar/desativar inversão (ex: C/E, C/F, D/F#)"
               >
                 {bassEnabled ? "Ativo" : "Inativo"}
               </button>
@@ -435,7 +415,6 @@ export default function ChordPicker(props: {
                         bassAcc === a ? "bg-black/5 dark:bg-white/10" : ""
                       }`}
                       onClick={() => setBassAcc(a)}
-                      title={`Baixo: ${a}`}
                     >
                       {accToSymbol(a)}
                     </button>
