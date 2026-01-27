@@ -60,15 +60,45 @@ function parseHeading(line: string): { type: string; title?: string } | null {
 }
 
 /**
- * ✅ Regex de acorde (abrangente para notação BR)
+ * Normaliza token de acorde para validação:
+ * - ♯ -> #
+ * - ♭ -> b
+ * - traços “esquisitos” -> "-"
+ * - remove espaços internos (ex: "E7( 5 - )" -> "E7(5-)")
+ */
+function normalizeChordToken(input: string) {
+  return String(input ?? "")
+    .trim()
+    .replace(/♯/g, "#")
+    .replace(/♭/g, "b")
+    .replace(/[−–—]/g, "-")
+    .replace(/\s+/g, "");
+}
+
+/**
+ * ✅ Regex de acorde (bem mais permissivo, sem “quebrar” import)
+ *
+ * Exemplos aceitos:
+ * - C, Cm, C#, Db, Bb
+ * - C/F, C/G, D/F#, E/G#
+ * - C7, Cmaj7, C7M, CM7, C9, C6, C13
+ * - Csus, Csus2, Csus4, Cadd9
+ * - Cdim, C°, Cº, Cø, Cm7(b5), Cm7b5
+ * - E7(5-), A7(5-), G7(#9), Fmaj7(#11)
+ * - D7M/9 (slash numérico também passa)
  */
 const CHORD_TOKEN_RE =
-  /^[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus2|sus4|add\d+)?(?:\d+)?(?:M|m)?(?:º|°)?(?:\([0-9+#b\s]+\))?(?:\/(?:[A-G](?:#|b)?|\d+))?$/;
+  /^[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus2|sus4|sus|add\d+)?(?:\d+|maj\d+|M\d+|7M|m\d+)?(?:º|°|ø)?(?:[0-9A-Za-z+#b()\-]*)?(?:\/(?:[A-G](?:#|b)?|\d+))?$/i;
 
 function looksLikeChordToken(token: string) {
-  const t = token.trim();
-  if (!t) return false;
-  if (t.length > 24) return false;
+  const t0 = token.trim();
+  if (!t0) return false;
+
+  const t = normalizeChordToken(t0);
+
+  // limite um pouco maior pq acordes complexos existem (ex: Fmaj7(#11)/A)
+  if (t.length > 40) return false;
+
   return CHORD_TOKEN_RE.test(t);
 }
 
@@ -133,7 +163,8 @@ function extractChordsWithPositions(chordLine: string): SongChordToken[] {
     const col = m.index;
     const pos = Math.max(0, col);
 
-    out.push({ chord: raw.trim(), pos });
+    // ✅ salva normalizado (melhor pra transposição e consistência)
+    out.push({ chord: normalizeChordToken(raw), pos });
   }
 
   const seen = new Set<string>();
@@ -172,10 +203,12 @@ function parseInlineChordLine(line: string): SongLine {
     if (ch === "[") {
       const close = line.indexOf("]", i + 1);
       if (close !== -1) {
-        const inside = line.slice(i + 1, close).trim();
+        const insideRaw = line.slice(i + 1, close).trim();
 
         // se for um acorde válido, consome
-        if (looksLikeChordToken(inside)) {
+        if (looksLikeChordToken(insideRaw)) {
+          const inside = normalizeChordToken(insideRaw);
+
           // pos “natural”: onde estamos na lyric limpa
           let pos = lyric.length;
 
