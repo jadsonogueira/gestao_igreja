@@ -6,6 +6,7 @@ import Navbar from '@/components/layout/navbar';
 /**
  * RootShell controla o que aparece no layout global.
  * - Em /checkin (e subrotas), oculta a Navbar e NAO aplica o container do admin.
+ * - Em /songs/[id]/culto (e subrotas), oculta a Navbar e NAO aplica container (modo visualização).
  * - No restante do app, mantem Navbar + container (como era antes).
  */
 export default function RootShell({ children }: { children: React.ReactNode }) {
@@ -13,7 +14,15 @@ export default function RootShell({ children }: { children: React.ReactNode }) {
 
   const isCheckin = pathname === '/checkin' || pathname.startsWith('/checkin/');
 
-  if (isCheckin) {
+  // ✅ Modo CULTO: /songs/:id/culto (ou qualquer coisa dentro)
+  // Exemplos:
+  // - /songs/69779b59e729cdb9dfcd981a/culto
+  // - /songs/69779b59e729cdb9dfcd981a/culto/alguma-coisa (se existir)
+  const isCulto =
+    pathname.includes('/songs/') &&
+    (pathname.endsWith('/culto') || pathname.includes('/culto/'));
+
+  if (isCheckin || isCulto) {
     // Sem Navbar e sem container do admin
     return <>{children}</>;
   }
