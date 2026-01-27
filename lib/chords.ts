@@ -43,48 +43,87 @@ const NOTE_TO_INDEX: Record<string, number> = {
 
 export type ParsedChord = {
   root: string;       // ex: C, F#, Bb
-  quality: string;    // ex: "", m, maj7, sus4, add9...
-  suffix: string;     // ex: "7", "maj7", "m7(9)" etc (mantemos aqui junto)
+  quality: string;    // (mantemos simples por enquanto)
+  suffix: string;     // ex: "7", "maj7", "m7(9)", "7(5-)", "°", etc.
   bass?: string;      // ex: G em C/G
   raw: string;
 };
 
 /**
- * Parser bem permissivo:
- * - Root: A-G + (#|b)?
- * - Restante: tudo até uma possível barra /bass
+ * Normalizações para aceitar variações comuns:
+ * - ♯ -> #
+ * - ♭ -> b
+ * - "−" / "–" / "—" -> "-"
+ * - remove espaços internos (ex: "G 7 ( 9 )" -> "G7(9)")
+ */
+function normalizeChordText(input: string) {
+  return String(input ?? "")
+    .trim()
+    .replace(/♯/g, "#")
+    .replace(/♭/g, "b")
+    .replace(/[−–—]/g, "-")
+    .replace(/\s+/g, "");
+}
+
+function isValidNoteToken(token: string) {
+  // nota: A-G + (#|b)?
+  const m = token.match(/^([A-Ga-g])([#b])?$/);
+  if (!m) return false;
+  const root = `${m[1].toUpperCase()}${m[2] ?? ""}`;
+  return NOTE_TO_INDEX[root] !== undefined;
+}
+
+/**
+ * Parser bem permissivo (e mais “inteligente” com slash):
+ * - Root: A-G + (#|b)?  (aceita ♯/♭ pois normalizamos)
+ * - Sufixo: qualquer coisa depois do root (m, 7, maj7, sus, add, °, (9), (5-), b5, #11, etc.)
+ * - Slash:
+ *    ✅ se for /[A-G][#b]? -> é baixo (C/E, D/F#)
+ *    ✅ se for /número ou /9 etc -> NÃO é baixo, faz parte do sufixo (D7M/9)
  */
 export function parseChord(chord: string): ParsedChord | null {
-  const raw = (chord ?? "").trim();
+  const raw = String(chord ?? "").trim();
   if (!raw) return null;
 
-  // separa slash bass
-  const [main, bass] = raw.split("/").map((s) => s.trim());
-  if (!main) return null;
+  const normalized = normalizeChordText(raw);
+  if (!normalized) return null;
 
-  // root (A-G + acidente opcional)
-  const m = main.match(/^([A-G])(#|b)?(.*)$/);
+  // Decide se o "/..." é baixo OU parte do sufixo (ex: D7M/9)
+  let main = normalized;
+  let bassNote: string | undefined;
+
+  const lastSlash = normalized.lastIndexOf("/");
+  if (lastSlash > 0 && lastSlash < normalized.length - 1) {
+    const left = normalized.slice(0, lastSlash);
+    const right = normalized.slice(lastSlash + 1);
+
+    // Só considera baixo se o lado direito for uma nota válida (A-G + #/b)
+    if (isValidNoteToken(right)) {
+      main = left;
+      const bm = right.match(/^([A-Ga-g])([#b])?$/);
+      if (bm) {
+        const b = `${bm[1].toUpperCase()}${bm[2] ?? ""}`;
+        if (NOTE_TO_INDEX[b] !== undefined) bassNote = b;
+      }
+    } else {
+      // NÃO é baixo → mantém o slash dentro do main (ex: D7M/9)
+      main = normalized;
+    }
+  }
+
+  // root (A-G + acidente opcional) + resto (sufixo)
+  const m = main.match(/^([A-Ga-g])([#b])?(.*)$/);
   if (!m) return null;
 
-  const root = `${m[1]}${m[2] ?? ""}`;
-  const rest = (m[3] ?? "").trim(); // qualidade + extensões
+  const root = `${m[1].toUpperCase()}${m[2] ?? ""}`;
+  const rest = (m[3] ?? ""); // já vem sem espaços
 
   // valida root
   if (NOTE_TO_INDEX[root] === undefined) return null;
 
-  // bass opcional: A-G + (#|b)?
-  let bassNote: string | undefined;
-  if (bass) {
-    const bm = bass.match(/^([A-G])(#|b)?$/);
-    if (bm) {
-      const b = `${bm[1]}${bm[2] ?? ""}`;
-      if (NOTE_TO_INDEX[b] !== undefined) bassNote = b;
-    }
-  }
-
   return {
     root,
-    quality: "", // não vamos separar profundamente agora
+    quality: "",
     suffix: rest,
     bass: bassNote,
     raw,
@@ -102,19 +141,26 @@ function indexToNote(index: number, pref: AccidentalPref) {
 }
 
 export function transposeNote(note: string, semitones: number, pref: AccidentalPref) {
-  const idx = NOTE_TO_INDEX[note];
+  const n = normalizeChordText(note); // aceita ♯/♭ também
+  const m = n.match(/^([A-Ga-g])([#b])?$/);
+  if (!m) return note;
+
+  const key = `${m[1].toUpperCase()}${m[2] ?? ""}`;
+  const idx = NOTE_TO_INDEX[key];
   if (idx === undefined) return note;
+
   return indexToNote(idx + semitones, pref);
 }
 
 /**
  * Transpõe acorde inteiro:
  * - Transpõe root
- * - Mantém sufixo (m, 7, maj7, sus4, add9, (9), etc.)
- * - Transpõe baixo (slash) se existir
+ * - Mantém sufixo (m, 7, maj7, sus4, add9, (9), (5-), °, etc.)
+ * - Transpõe baixo (slash) se existir e se foi reconhecido como baixo
  *
  * Ex:
  *  C#m7(9)/G# +2 (sharp) -> D#m7(9)/A#
+ *  D7M/9 +2 -> E7M/9  (aqui /9 fica no sufixo, não é baixo)
  */
 export function transposeChord(chord: string, semitones: number, pref: AccidentalPref) {
   const p = parseChord(chord);
