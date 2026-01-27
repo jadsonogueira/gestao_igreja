@@ -2,6 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
+import {
+  ArrowLeft,
+  MoreVertical,
+  Music2,
+  Pencil,
+  Copy,
+  Upload,
+  Trash2,
+  ChevronUp,
+  ChevronDown,
+  Church,
+  ClipboardCopy,
+  X,
+} from "lucide-react";
 
 type SongMini = {
   id: string;
@@ -68,6 +82,43 @@ function buildExportMarkdown(listName: string, items: ListItem[]) {
   return lines.join("\n");
 }
 
+function IconButton(props: {
+  title: string;
+  onClick?: () => void;
+  href?: string;
+  disabled?: boolean;
+  children: React.ReactNode;
+  variant?: "ghost" | "danger";
+}) {
+  const cls = `inline-flex items-center justify-center rounded-lg border px-2.5 py-2 text-sm
+    ${
+      props.variant === "danger"
+        ? "border-red-500/30 hover:bg-red-500/10"
+        : "border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/5"
+    }
+    ${props.disabled ? "opacity-40 pointer-events-none" : ""}`;
+
+  if (props.href) {
+    return (
+      <a className={cls} href={props.href} title={props.title} aria-label={props.title}>
+        {props.children}
+      </a>
+    );
+  }
+
+  return (
+    <button
+      className={cls}
+      onClick={props.onClick}
+      disabled={props.disabled}
+      title={props.title}
+      aria-label={props.title}
+    >
+      {props.children}
+    </button>
+  );
+}
+
 export default function SongListDetailPage({ params }: { params: { id: string } }) {
   const [data, setData] = useState<SongListDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,6 +137,8 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
 
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
+
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const listId = params.id;
 
@@ -237,98 +290,127 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
     }
   }
 
+  const listName = data?.name ?? "Lista";
+  const countText = loading
+    ? "Carregando..."
+    : `${filteredItems.length} de ${items.length}`;
+
   return (
-    <main className="mx-auto max-w-2xl p-4 space-y-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <a className="text-sm opacity-70 underline" href="/song-lists">
-            ← Voltar
-          </a>
-          <h1 className="text-2xl font-semibold mt-1">{data?.name ?? "Lista"}</h1>
-          <div className="text-xs opacity-60">ID: {listId}</div>
+    <main className="mx-auto max-w-2xl px-4 pb-8">
+      {/* TOP BAR (sticky) */}
+      <div className="sticky top-0 z-20 -mx-4 mb-4 border-b bg-white/95 px-4 py-3 backdrop-blur dark:bg-black/85 dark:border-white/10">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <a
+              className="inline-flex items-center gap-2 text-sm opacity-80 hover:opacity-100"
+              href="/song-lists"
+            >
+              <ArrowLeft size={18} />
+              Voltar
+            </a>
+
+            <div className="mt-1 flex items-baseline gap-2 min-w-0">
+              <h1 className="text-xl font-semibold truncate">{listName}</h1>
+              <span className="text-xs opacity-60 whitespace-nowrap">({countText})</span>
+            </div>
+            <div className="text-[11px] opacity-50 truncate">ID: {listId}</div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <IconButton title="Ver cifras" href="/songs">
+              <Music2 size={18} />
+            </IconButton>
+
+            <IconButton
+              title={menuOpen ? "Fechar menu" : "Ações"}
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              <MoreVertical size={18} />
+            </IconButton>
+          </div>
         </div>
 
-        <div className="flex flex-col gap-2 items-end">
-          <a className="border rounded px-3 py-2 text-sm" href="/songs">
-            Ver cifras
-          </a>
+        {/* MENU AÇÕES */}
+        {menuOpen ? (
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <button
+              className="rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5"
+              onClick={() => {
+                setRenameName(data?.name ?? "");
+                setRenameOpen(true);
+                setMenuOpen(false);
+              }}
+            >
+              <span className="inline-flex items-center gap-2">
+                <Pencil size={16} /> Renomear
+              </span>
+            </button>
 
-          <button
-            className="border rounded px-3 py-2 text-sm"
-            onClick={() => {
-              setRenameName(data?.name ?? "");
-              setRenameOpen(true);
-            }}
-          >
-            Renomear
-          </button>
+            <button
+              className="rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5"
+              onClick={() => {
+                setDupName("");
+                setDupOpen(true);
+                setMenuOpen(false);
+              }}
+            >
+              <span className="inline-flex items-center gap-2">
+                <Copy size={16} /> Duplicar
+              </span>
+            </button>
 
-          <button
-            className="border rounded px-3 py-2 text-sm"
-            onClick={() => {
-              setDupName("");
-              setDupOpen(true);
-            }}
-          >
-            Duplicar lista
-          </button>
+            <button
+              className="rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5"
+              onClick={() => {
+                setExportMode("text");
+                setExportOpen(true);
+                setMenuOpen(false);
+              }}
+            >
+              <span className="inline-flex items-center gap-2">
+                <Upload size={16} /> Exportar
+              </span>
+            </button>
 
-          <button
-            className="border rounded px-3 py-2 text-sm"
-            onClick={() => {
-              setExportMode("text");
-              setExportOpen(true);
-            }}
-          >
-            Exportar (Texto)
-          </button>
+            <button
+              className="rounded-lg border border-red-500/30 px-3 py-2 text-sm hover:bg-red-500/10"
+              onClick={() => {
+                setDeleteConfirm("");
+                setDeleteOpen(true);
+                setMenuOpen(false);
+              }}
+            >
+              <span className="inline-flex items-center gap-2">
+                <Trash2 size={16} /> Excluir
+              </span>
+            </button>
+          </div>
+        ) : null}
 
-          <button
-            className="border rounded px-3 py-2 text-sm"
-            onClick={() => {
-              setExportMode("md");
-              setExportOpen(true);
-            }}
-          >
-            Exportar (Markdown)
-          </button>
-
-          <button
-            className="border rounded px-3 py-2 text-sm"
-            onClick={() => {
-              setDeleteConfirm("");
-              setDeleteOpen(true);
-            }}
-          >
-            Excluir
-          </button>
+        {/* SEARCH */}
+        <div className="mt-3">
+          <input
+            className="w-full rounded-xl border px-3 py-2 text-sm bg-white dark:bg-black"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Buscar: título, artista, tom, tag..."
+          />
         </div>
       </div>
 
-      <div className="border rounded p-3">
-        <div className="text-xs opacity-70 mb-2">Buscar na lista</div>
-        <input
-          className="w-full border rounded px-3 py-2 text-sm"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Digite parte do título, artista ou tag..."
-        />
-        <div className="mt-2 text-xs opacity-60">
-          Mostrando {filteredItems.length} de {items.length}
-        </div>
-      </div>
-
+      {/* STATES */}
       {loading ? (
-        <div className="border rounded p-4 text-sm opacity-70">Carregando...</div>
+        <div className="rounded-xl border p-4 text-sm opacity-70">Carregando...</div>
       ) : null}
 
       {!loading && !filteredItems.length ? (
-        <div className="border rounded p-4 text-sm opacity-70">
+        <div className="rounded-xl border p-4 text-sm opacity-70">
           Nenhum resultado para a busca.
         </div>
       ) : null}
 
-      <div className="space-y-2">
+      {/* LIST */}
+      <div className="space-y-3">
         {filteredItems.map((it, idx) => {
           const s = it.song;
           const isFirst = idx === 0;
@@ -336,57 +418,59 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
           const disabled = movingId === it.id;
 
           return (
-            <div key={it.id} className="border rounded p-3">
+            <div
+              key={it.id}
+              className="rounded-2xl border bg-white p-3 shadow-sm dark:bg-black dark:border-white/10"
+            >
               <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="font-medium">{s.title}</div>
-
-                  <div className="text-xs opacity-70">
+                <div className="min-w-0">
+                  <div className="font-semibold truncate">{s.title}</div>
+                  <div className="mt-0.5 text-xs opacity-70 truncate">
                     {s.artist ? `${s.artist} • ` : ""}
                     Tom: <strong>{s.originalKey}</strong>
                   </div>
 
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <a
-                      className="border rounded px-2 py-1 text-xs"
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <IconButton
+                      title="Editar cifra"
                       href={`/songs/${s.id}?listId=${encodeURIComponent(listId)}`}
                     >
-                      Editar
-                    </a>
+                      <Pencil size={16} />
+                    </IconButton>
 
-                    <a
-                      className="border rounded px-2 py-1 text-xs"
+                    <IconButton
+                      title="Modo Culto"
                       href={`/songs/${s.id}/culto?listId=${encodeURIComponent(listId)}`}
                     >
-                      Culto
-                    </a>
+                      <Church size={16} />
+                    </IconButton>
+
+                    <IconButton
+                      title="Remover da lista"
+                      onClick={() => removeSong(s.id)}
+                      variant="danger"
+                    >
+                      <Trash2 size={16} />
+                    </IconButton>
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-2 items-end">
-                  <div className="flex gap-2">
-                    <button
-                      className="border rounded px-2 py-1 text-sm"
-                      disabled={isFirst || disabled}
-                      onClick={() => move(it.id, "up")}
-                    >
-                      ↑
-                    </button>
-                    <button
-                      className="border rounded px-2 py-1 text-sm"
-                      disabled={isLast || disabled}
-                      onClick={() => move(it.id, "down")}
-                    >
-                      ↓
-                    </button>
-                  </div>
-
-                  <button
-                    className="border rounded px-3 py-2 text-sm"
-                    onClick={() => removeSong(s.id)}
+                <div className="flex flex-col gap-2 items-end shrink-0">
+                  <IconButton
+                    title="Mover para cima"
+                    disabled={isFirst || disabled}
+                    onClick={() => move(it.id, "up")}
                   >
-                    Remover
-                  </button>
+                    <ChevronUp size={18} />
+                  </IconButton>
+
+                  <IconButton
+                    title="Mover para baixo"
+                    disabled={isLast || disabled}
+                    onClick={() => move(it.id, "down")}
+                  >
+                    <ChevronDown size={18} />
+                  </IconButton>
                 </div>
               </div>
             </div>
@@ -397,36 +481,57 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
       {/* EXPORT MODAL */}
       {exportOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
-          <div className="w-full max-w-xl rounded-xl border bg-white p-4 shadow-lg dark:bg-black">
+          <div className="w-full max-w-xl rounded-2xl border bg-white p-4 shadow-lg dark:bg-black dark:border-white/10">
             <div className="flex items-start justify-between gap-3">
-              <div>
+              <div className="min-w-0">
                 <div className="text-sm font-semibold">
                   Exportar ({exportMode === "md" ? "Markdown" : "Texto"})
                 </div>
-                <div className="text-xs opacity-70">Exporta respeitando a busca.</div>
+                <div className="text-xs opacity-70">
+                  Exporta respeitando a busca ({filteredItems.length} itens).
+                </div>
               </div>
 
+              <IconButton title="Fechar" onClick={() => setExportOpen(false)}>
+                <X size={16} />
+              </IconButton>
+            </div>
+
+            <div className="mt-3 flex gap-2">
               <button
-                className="text-sm underline opacity-70"
-                onClick={() => setExportOpen(false)}
+                className={`rounded-lg border px-3 py-2 text-sm ${
+                  exportMode === "text" ? "bg-black/5 dark:bg-white/5" : ""
+                }`}
+                onClick={() => setExportMode("text")}
               >
-                Fechar
+                Texto
+              </button>
+              <button
+                className={`rounded-lg border px-3 py-2 text-sm ${
+                  exportMode === "md" ? "bg-black/5 dark:bg-white/5" : ""
+                }`}
+                onClick={() => setExportMode("md")}
+              >
+                Markdown
               </button>
             </div>
 
             <textarea
-              className="mt-3 w-full rounded border p-3 font-mono text-sm"
+              className="mt-3 w-full rounded-xl border p-3 font-mono text-sm bg-white dark:bg-black"
               rows={10}
               value={exportText}
               readOnly
             />
 
             <div className="mt-3 flex justify-end gap-2">
-              <button className="border rounded px-3 py-2 text-sm" onClick={onCopy}>
-                Copiar
+              <button
+                className="rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5 inline-flex items-center gap-2"
+                onClick={onCopy}
+              >
+                <ClipboardCopy size={16} /> Copiar
               </button>
               <button
-                className="border rounded px-3 py-2 text-sm"
+                className="rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5"
                 onClick={() => setExportOpen(false)}
               >
                 Ok
@@ -439,25 +544,22 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
       {/* DUPLICAR MODAL */}
       {dupOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
-          <div className="w-full max-w-xl rounded-xl border bg-white p-4 shadow-lg dark:bg-black">
+          <div className="w-full max-w-xl rounded-2xl border bg-white p-4 shadow-lg dark:bg-black dark:border-white/10">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold">Duplicar lista</div>
                 <div className="text-xs opacity-70">Se deixar em branco, cria “(cópia)”.</div>
               </div>
 
-              <button
-                className="text-sm underline opacity-70"
-                onClick={() => setDupOpen(false)}
-              >
-                Fechar
-              </button>
+              <IconButton title="Fechar" onClick={() => setDupOpen(false)}>
+                <X size={16} />
+              </IconButton>
             </div>
 
             <div className="mt-3 space-y-2">
               <label className="text-xs opacity-70">Novo nome (opcional)</label>
               <input
-                className="w-full rounded border px-3 py-2 text-sm"
+                className="w-full rounded-xl border px-3 py-2 text-sm bg-white dark:bg-black"
                 value={dupName}
                 onChange={(e) => setDupName(e.target.value)}
                 placeholder={`${data?.name ?? "Lista"} (cópia)`}
@@ -465,11 +567,14 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
             </div>
 
             <div className="mt-3 flex justify-end gap-2">
-              <button className="border rounded px-3 py-2 text-sm" onClick={duplicateList}>
+              <button
+                className="rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5"
+                onClick={duplicateList}
+              >
                 Duplicar
               </button>
               <button
-                className="border rounded px-3 py-2 text-sm"
+                className="rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5"
                 onClick={() => setDupOpen(false)}
               >
                 Cancelar
@@ -482,36 +587,36 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
       {/* RENOMEAR MODAL */}
       {renameOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
-          <div className="w-full max-w-xl rounded-xl border bg-white p-4 shadow-lg dark:bg-black">
+          <div className="w-full max-w-xl rounded-2xl border bg-white p-4 shadow-lg dark:bg-black dark:border-white/10">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold">Renomear lista</div>
                 <div className="text-xs opacity-70">O nome é único.</div>
               </div>
 
-              <button
-                className="text-sm underline opacity-70"
-                onClick={() => setRenameOpen(false)}
-              >
-                Fechar
-              </button>
+              <IconButton title="Fechar" onClick={() => setRenameOpen(false)}>
+                <X size={16} />
+              </IconButton>
             </div>
 
             <div className="mt-3 space-y-2">
               <label className="text-xs opacity-70">Novo nome</label>
               <input
-                className="w-full rounded border px-3 py-2 text-sm"
+                className="w-full rounded-xl border px-3 py-2 text-sm bg-white dark:bg-black"
                 value={renameName}
                 onChange={(e) => setRenameName(e.target.value)}
               />
             </div>
 
             <div className="mt-3 flex justify-end gap-2">
-              <button className="border rounded px-3 py-2 text-sm" onClick={renameList}>
+              <button
+                className="rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5"
+                onClick={renameList}
+              >
                 Salvar
               </button>
               <button
-                className="border rounded px-3 py-2 text-sm"
+                className="rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5"
                 onClick={() => setRenameOpen(false)}
               >
                 Cancelar
@@ -524,7 +629,7 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
       {/* EXCLUIR MODAL */}
       {deleteOpen ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
-          <div className="w-full max-w-xl rounded-xl border bg-white p-4 shadow-lg dark:bg-black">
+          <div className="w-full max-w-xl rounded-2xl border bg-white p-4 shadow-lg dark:bg-black dark:border-white/10">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-sm font-semibold">Excluir lista</div>
@@ -533,29 +638,29 @@ export default function SongListDetailPage({ params }: { params: { id: string } 
                 </div>
               </div>
 
-              <button
-                className="text-sm underline opacity-70"
-                onClick={() => setDeleteOpen(false)}
-              >
-                Fechar
-              </button>
+              <IconButton title="Fechar" onClick={() => setDeleteOpen(false)}>
+                <X size={16} />
+              </IconButton>
             </div>
 
             <div className="mt-3 space-y-2">
               <label className="text-xs opacity-70">Confirmação</label>
               <input
-                className="w-full rounded border px-3 py-2 text-sm"
+                className="w-full rounded-xl border px-3 py-2 text-sm bg-white dark:bg-black"
                 value={deleteConfirm}
                 onChange={(e) => setDeleteConfirm(e.target.value)}
               />
             </div>
 
             <div className="mt-3 flex justify-end gap-2">
-              <button className="border rounded px-3 py-2 text-sm" onClick={deleteList}>
-                Excluir
+              <button
+                className="rounded-lg border border-red-500/30 px-3 py-2 text-sm hover:bg-red-500/10 inline-flex items-center gap-2"
+                onClick={deleteList}
+              >
+                <Trash2 size={16} /> Excluir
               </button>
               <button
-                className="border rounded px-3 py-2 text-sm"
+                className="rounded-lg border px-3 py-2 text-sm hover:bg-black/5 dark:hover:bg-white/5"
                 onClick={() => setDeleteOpen(false)}
               >
                 Cancelar
