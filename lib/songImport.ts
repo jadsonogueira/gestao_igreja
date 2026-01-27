@@ -60,7 +60,7 @@ function parseHeading(line: string): { type: string; title?: string } | null {
 }
 
 /**
- * Normaliza token de acorde para validação:
+ * Normaliza token de acorde para validação/consistência:
  * - ♯ -> #
  * - ♭ -> b
  * - traços “esquisitos” -> "-"
@@ -76,19 +76,22 @@ function normalizeChordToken(input: string) {
 }
 
 /**
- * ✅ Regex de acorde (bem mais permissivo, sem “quebrar” import)
+ * ✅ Regex de acorde (abrangente, porém segura)
  *
- * Exemplos aceitos:
+ * Aceita:
  * - C, Cm, C#, Db, Bb
- * - C/F, C/G, D/F#, E/G#
- * - C7, Cmaj7, C7M, CM7, C9, C6, C13
+ * - C/G, D/F#, E/G#
+ * - C7, Cm7, Cmaj7, C7M, CM7, C6, C9, C11, C13
  * - Csus, Csus2, Csus4, Cadd9
  * - Cdim, C°, Cº, Cø, Cm7(b5), Cm7b5
- * - E7(5-), A7(5-), G7(#9), Fmaj7(#11)
- * - D7M/9 (slash numérico também passa)
+ * - E7(5-), A7(b5), G7(#9), Fmaj7(#11)
+ * - C7/9 (slash numérico como extensão)
+ *
+ * E evita:
+ * - palavras tipo "Cantar" (porque não bate nos padrões de qualidade/extensão)
  */
 const CHORD_TOKEN_RE =
-  /^[A-G](?:#|b)?(?:m(?!aj)|maj|min|dim|aug|sus2|sus4|sus|add\d+)?(?:\d+|maj\d+|M\d+|7M|m\d+)?(?:º|°|ø)?(?:[0-9A-Za-z+#b()\-]*)?(?:\/(?:[A-G](?:#|b)?|\d+))?$/i;
+  /^[A-G](?:#|b)?(?:m(?!aj)|min|maj|M|Δ)?(?:sus2|sus4|sus|add\d+|dim|aug|\+|°|º|ø)?(?:\d{1,2}|7M|9M|11M|13M|maj\d+|M\d+)?(?:m\d+)?(?:\([0-9+#b,\-]+\))*(?:[#b]\d{1,2})*(?:\/(?:[A-G](?:#|b)?|\d{1,2}))?$/i;
 
 function looksLikeChordToken(token: string) {
   const t0 = token.trim();
@@ -96,8 +99,11 @@ function looksLikeChordToken(token: string) {
 
   const t = normalizeChordToken(t0);
 
-  // limite um pouco maior pq acordes complexos existem (ex: Fmaj7(#11)/A)
+  // acordes complexos existem (ex: Fmaj7(#11)/A)
   if (t.length > 40) return false;
+
+  // filtro rápido: só permite caracteres típicos de acorde
+  if (!/^[A-G0-9a-zA-Z#b()\/+\-°ºøΔ,]+$/.test(t)) return false;
 
   return CHORD_TOKEN_RE.test(t);
 }
@@ -163,7 +169,7 @@ function extractChordsWithPositions(chordLine: string): SongChordToken[] {
     const col = m.index;
     const pos = Math.max(0, col);
 
-    // ✅ salva normalizado (melhor pra transposição e consistência)
+    // ✅ salva normalizado
     out.push({ chord: normalizeChordToken(raw), pos });
   }
 
@@ -178,14 +184,6 @@ function extractChordsWithPositions(chordLine: string): SongChordToken[] {
 
 /**
  * ✅ Parser INLINE: [C]palavra ... [F/A]outra...
- *
- * Retorna:
- * - lyric sem os [acordes]
- * - chords com pos baseado na coluna da lyric "limpa"
- *
- * Importante:
- * - sequências [Bb/D][C/E] (sem letra no meio) não podem ficar sobrepostas.
- *   Então empurramos o próximo acorde para a direita usando o "fim do acorde anterior".
  */
 function parseInlineChordLine(line: string): SongLine {
   const chords: SongChordToken[] = [];
@@ -193,7 +191,6 @@ function parseInlineChordLine(line: string): SongLine {
 
   let i = 0;
 
-  // controla sobreposição quando tem [X][Y] colado
   let lastChordEndPos = -1;
   let lastWasChord = false;
 
@@ -205,14 +202,11 @@ function parseInlineChordLine(line: string): SongLine {
       if (close !== -1) {
         const insideRaw = line.slice(i + 1, close).trim();
 
-        // se for um acorde válido, consome
         if (looksLikeChordToken(insideRaw)) {
           const inside = normalizeChordToken(insideRaw);
 
-          // pos “natural”: onde estamos na lyric limpa
           let pos = lyric.length;
 
-          // se veio outro acorde colado (sem letra), empurra pra não sobrepor
           if (lastWasChord && lastChordEndPos >= pos) {
             pos = lastChordEndPos + 1;
           }
@@ -227,7 +221,6 @@ function parseInlineChordLine(line: string): SongLine {
       }
     }
 
-    // caractere normal vira lyric
     lyric += ch;
     lastWasChord = false;
     i++;
@@ -239,10 +232,6 @@ function parseInlineChordLine(line: string): SongLine {
   };
 }
 
-/**
- * Detecta se o texto tem padrão INLINE: [A-G...] no meio da linha.
- * (não confunde muito com headings porque headings geralmente são linha inteira)
- */
 function hasInlineChords(rawText: string) {
   const sample = rawText.slice(0, 20000);
   return /\[[A-G](?:#|b)?/i.test(sample);
@@ -261,16 +250,13 @@ export function buildSearchIndex(params: {
   return [params.title, params.artist ?? "", lyrics].join("\n").toLowerCase();
 }
 
-/**
- * ✅ Parser 1: cifra em cima da letra (seu formato antigo)
- */
 export function parseSongFromChordAboveText(rawText: string): {
   content: SongContent;
   chordsUsed: string[];
 } {
   const lines = normalizeLine(rawText)
     .split("\n")
-    .map((l) => l.replace(/\s+$/g, "")); // trim end
+    .map((l) => l.replace(/\s+$/g, ""));
 
   const parts: SongPart[] = [];
   let currentPart: SongPart = { type: "GERAL", title: null, lines: [] };
@@ -297,7 +283,7 @@ export function parseSongFromChordAboveText(rawText: string): {
       chords.forEach((c) => chordsSet.add(c.chord));
 
       currentPart.lines.push({ lyric: next.trimEnd(), chords });
-      i++; // consome a linha de letra
+      i++;
       continue;
     }
 
@@ -311,16 +297,13 @@ export function parseSongFromChordAboveText(rawText: string): {
   return { content: { parts }, chordsUsed };
 }
 
-/**
- * ✅ Parser 2: inline [C]letra
- */
 export function parseSongFromInlineChordText(rawText: string): {
   content: SongContent;
   chordsUsed: string[];
 } {
   const lines = normalizeLine(rawText)
     .split("\n")
-    .map((l) => l.replace(/\s+$/g, "")); // trimEnd
+    .map((l) => l.replace(/\s+$/g, ""));
 
   const parts: SongPart[] = [];
   let currentPart: SongPart = { type: "GERAL", title: null, lines: [] };
@@ -333,7 +316,6 @@ export function parseSongFromInlineChordText(rawText: string): {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    // headings (ex: [VERSO]) continuam funcionando
     const heading = parseHeading(line);
     if (heading) {
       currentPart = { type: heading.type, title: heading.title ?? null, lines: [] };
@@ -351,9 +333,6 @@ export function parseSongFromInlineChordText(rawText: string): {
   return { content: { parts }, chordsUsed };
 }
 
-/**
- * ✅ AUTO: escolhe parser pelo texto
- */
 export function parseSongAuto(rawText: string): {
   content: SongContent;
   chordsUsed: string[];
