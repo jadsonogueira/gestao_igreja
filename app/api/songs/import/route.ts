@@ -24,11 +24,16 @@ function normalizeTags(input: unknown): string[] {
 /**
  * Remove “lixo” comum do Cifra Club e normaliza linhas.
  * Obs: pro modo INLINE, a gente NÃO mexe na estrutura dos colchetes.
+ *
+ * MUITO IMPORTANTE:
+ * - NÃO usar trim() no texto inteiro (isso destrói indentação/coluna da 1ª/última linha)
+ * - Preservar espaços à esquerda (colunas) para o modo "acordes acima da letra"
  */
 function cleanRawSongText(raw: string) {
   const lines = String(raw ?? "")
-    .replace(/\r/g, "")
-    .replace(/\t/g, "  ")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\t/g, "    ") // 4 espaços (mais estável)
     .split("\n");
 
   const dropLine = (t: string) => {
@@ -54,11 +59,10 @@ function cleanRawSongText(raw: string) {
 
   const cleaned: string[] = [];
   for (const line of lines) {
-    const normalized = line.replace(/\s+$/g, ""); // trimEnd
+    const normalized = line.replace(/\s+$/g, ""); // trimEnd: OK (não mexe no começo)
     if (dropLine(normalized)) continue;
 
-    // ✅ aqui não “amassa” demais, porque o modo acima-da-letra depende de espaços
-    // e o modo inline depende de posições naturais do texto.
+    // NÃO “amassa” espaços: o modo acima-da-letra depende deles.
     cleaned.push(normalized);
   }
 
@@ -78,7 +82,17 @@ function cleanRawSongText(raw: string) {
     finalLines.push(line);
   }
 
-  return finalLines.join("\n").trim();
+  // ✅ remover somente linhas vazias no início/fim, sem mexer na indentação das linhas úteis
+  let start = 0;
+  while (start < finalLines.length && finalLines[start].trim() === "") start++;
+
+  let end = finalLines.length - 1;
+  while (end >= start && finalLines[end].trim() === "") end--;
+
+  const sliced = finalLines.slice(start, end + 1);
+
+  // ✅ NÃO usar trim() aqui
+  return sliced.join("\n");
 }
 
 const KEY_ALIASES: Record<string, string> = {
@@ -183,7 +197,10 @@ export async function POST(request: Request) {
     }
 
     if (!rawTextInput.trim()) {
-      return NextResponse.json({ success: false, error: "Cole a cifra no campo de texto" }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "Cole a cifra no campo de texto" },
+        { status: 400 }
+      );
     }
 
     // detectar tom do texto ORIGINAL
@@ -191,7 +208,7 @@ export async function POST(request: Request) {
     const detectedKey = detectKeyFromRawText(rawTextInput);
     const originalKeyUsed = providedKey || detectedKey || "C";
 
-    // limpar texto antes de parsear
+    // limpar texto antes de parsear (SEM destruir colunas)
     const rawTextClean = cleanRawSongText(rawTextInput);
 
     // ✅ parse AUTO (inline ou acima-da-letra)
