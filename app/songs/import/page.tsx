@@ -13,6 +13,32 @@ function normalizeTags(input: string) {
     .map((t) => t.replace(/\s+/g, " "));
 }
 
+function normalizeRawChordText(input: string) {
+  // IMPORTANTÍSSIMO:
+  // - NÃO usar trim() (mata indentação/coluna)
+  // - trocar tabs por espaços
+  // - normalizar quebras de linha
+  // - remover apenas espaços à direita (trimEnd), que não afetam posição
+  const withLf = input.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const withSpaces = withLf.replace(/\t/g, "    ");
+
+  const lines = withSpaces.split("\n");
+
+  // remove linhas totalmente vazias do início/fim, mas sem destruir indentação das linhas úteis
+  let start = 0;
+  while (start < lines.length && lines[start].trim() === "") start++;
+
+  let end = lines.length - 1;
+  while (end >= start && lines[end].trim() === "") end--;
+
+  const sliced = lines.slice(start, end + 1);
+
+  // remove só o trailing whitespace de cada linha (mantém a coluna do começo)
+  const cleaned = sliced.map((l) => l.trimEnd());
+
+  return cleaned.join("\n");
+}
+
 type ImportResponse =
   | {
       success: true;
@@ -39,7 +65,9 @@ export default function ImportSongPage() {
 
   async function handleImport() {
     const t = title.trim();
-    const txt = rawText.trim();
+
+    // aqui está o ajuste chave
+    const txt = normalizeRawChordText(rawText);
 
     if (!t) {
       toast.error("Informe o título.");
