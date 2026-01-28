@@ -39,6 +39,11 @@ function stripBracketsHeading(line: string) {
   if (!t) return t;
 
   if (t.startsWith("[")) t = t.slice(1).trimStart();
+  if (t.endsWith("(")) t = t.slice(0, -1).trimEnd();
+
+  if (t.startsWith("(")) t = t.slice(1).trimStart();
+  if (t.endsWith(")")) t = t.slice(0, -1).trimEnd();
+
   if (t.endsWith("]")) t = t.slice(0, -1).trimEnd();
 
   return t;
@@ -128,18 +133,17 @@ function isSingleChordOnlyLine(line: string) {
   return looksLikeChordToken(tokens[0]);
 }
 
-function nextLineLooksLikeLyric(next: string) {
-  const t = next.trim();
+function looksLikeLyricLine(line: string) {
+  const t = line.trim();
   if (!t) return false;
 
-  if (isChordLine(next) || isSingleChordOnlyLine(next)) return false;
+  if (isChordLine(line) || isSingleChordOnlyLine(line)) return false;
 
-  // precisa ter letras (inclui acentos) para ser lyric
+  // qualquer linha com letras (inclui acentos) é letra
   if (/[A-Za-zÀ-ÿ]/.test(t)) return true;
 
-  if (/\s/.test(t) && t.length >= 3) return true;
-
-  return true;
+  // fallback: se tem comprimento, consideramos letra (ex: "..." etc.)
+  return t.length >= 1;
 }
 
 function extractChordsWithPositions(chordLine: string): SongChordToken[] {
@@ -236,22 +240,18 @@ export function buildSearchIndex(params: {
 }
 
 /**
- * ✅ NOVO: encontra a próxima linha NÃO VAZIA, pulando vazios (inclusive linhas com espaços)
+ * ✅ Parser “acordes acima” com buffer (pendingChords)
+ * Resolve de vez:
+ * - linhas vazias entre acorde e letra
+ * - blocos onde o copy/paste quebra o pareamento
  */
-function findNextNonEmptyLineIndex(lines: string[], startIndex: number) {
-  for (let j = startIndex; j < lines.length; j++) {
-    if ((lines[j] ?? "").trim() !== "") return j;
-  }
-  return -1;
-}
-
 export function parseSongFromChordAboveText(rawText: string): {
   content: SongContent;
   chordsUsed: string[];
 } {
   const lines = normalizeLine(rawText)
     .split("\n")
-    .map((l) => l.replace(/\s+$/g, ""));
+    .map((l) => l.replace(/\s+$/g, "")); // trimEnd apenas
 
   const parts: SongPart[] = [];
   let currentPart: SongPart = { type: "GERAL", title: null, lines: [] };
@@ -259,11 +259,19 @@ export function parseSongFromChordAboveText(rawText: string): {
 
   const chordsSet = new Set<string>();
 
+  let pendingChords: SongChordToken[] | null = null;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
+    const trimmed = line.trim();
+
+    // linhas vazias: não quebram o pareamento (só continuam)
+    if (!trimmed) continue;
 
     const heading = parseHeading(line);
     if (heading) {
+      // heading “quebra” o pending (não faz sentido carregar acorde pro próximo bloco)
+      pendingChords = null;
       currentPart = { type: heading.type, title: heading.title ?? null, lines: [] };
       parts.push(currentPart);
       continue;
@@ -272,29 +280,27 @@ export function parseSongFromChordAboveText(rawText: string): {
     const thisIsChord = isChordLine(line) || isSingleChordOnlyLine(line);
 
     if (thisIsChord) {
-      // ✅ em vez de olhar só a linha i+1, pula vazios e tenta achar a próxima linha real de letra
-      const j = findNextNonEmptyLineIndex(lines, i + 1);
-
-      if (j !== -1) {
-        const candidate = lines[j] ?? "";
-
-        if (nextLineLooksLikeLyric(candidate)) {
-          const chords = extractChordsWithPositions(line);
-          chords.forEach((c) => chordsSet.add(c.chord));
-
-          currentPart.lines.push({ lyric: candidate.trimEnd(), chords });
-
-          // ✅ consumiu também as linhas vazias intermediárias
-          i = j;
-          continue;
-        }
-      }
-    }
-
-    if (line.trim()) {
-      currentPart.lines.push({ lyric: line.trimEnd(), chords: [] });
+      // guarda os acordes e espera a próxima linha de letra
+      const chords = extractChordsWithPositions(line);
+      chords.forEach((c) => chordsSet.add(c.chord));
+      pendingChords = chords;
       continue;
     }
+
+    // chegou uma linha de letra
+    if (looksLikeLyricLine(line)) {
+      if (pendingChords && pendingChords.length) {
+        currentPart.lines.push({ lyric: line.trimEnd(), chords: pendingChords });
+        pendingChords = null;
+      } else {
+        currentPart.lines.push({ lyric: line.trimEnd(), chords: [] });
+      }
+      continue;
+    }
+
+    // fallback: se não encaixou em nada, grava como letra simples
+    currentPart.lines.push({ lyric: line.trimEnd(), chords: [] });
+    pendingChords = null;
   }
 
   const chordsUsed = Array.from(chordsSet);
