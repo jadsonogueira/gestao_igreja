@@ -67,6 +67,13 @@ type ImportResponse = {
   details?: any;
 };
 
+type GoogleStatusResponse = {
+  ok: boolean;
+  connected?: boolean;
+  error?: string;
+  reason?: string;
+};
+
 const tipoLabel: Record<string, string> = {
   DIRIGENTE: "Dirigente",
   LOUVOR: "Louvor",
@@ -114,6 +121,17 @@ function localInputToISO(value: string) {
   return d.toISOString();
 }
 
+function looksLikeOAuthProblem(json: any) {
+  const s = JSON.stringify(json ?? {}).toLowerCase();
+  return (
+    s.includes("invalid_grant") ||
+    s.includes("invalid grant") ||
+    s.includes("oauth") ||
+    s.includes("refresh token") ||
+    s.includes("token")
+  );
+}
+
 export default function EscalaPage() {
   const [days, setDays] = useState<number>(60);
   const [loading, setLoading] = useState(true);
@@ -156,6 +174,37 @@ export default function EscalaPage() {
     return Array.from(map.entries()).sort(([a], [b]) => (a > b ? 1 : -1));
   }, [items]);
 
+  /**
+   * ✅ Garante que OAuth foi iniciado do jeito certo:
+   * - Se NÃO conectado → redireciona o navegador para /api/google/oauth/start
+   * - Se conectado → segue normal
+   */
+  const ensureGoogleConnected = useCallback(async () => {
+    try {
+      const res = await fetch("/api/google/status", { cache: "no-store" });
+      const json = (await res.json().catch(() => ({}))) as GoogleStatusResponse;
+
+      if (!json?.ok) {
+        toast.error(json?.error ?? "Falha ao checar conexão com Google");
+        console.error("[google/status] ok:false", json);
+        return false;
+      }
+
+      if (json?.connected === false) {
+        toast("Conecte sua conta Google para importar a escala…");
+        // ⚠️ OAuth precisa ser navegação do browser (não fetch)
+        window.location.href = "/api/google/oauth/start";
+        return false;
+      }
+
+      return true;
+    } catch (e) {
+      console.error(e);
+      toast.error("Falha ao checar conexão com Google");
+      return false;
+    }
+  }, []);
+
   // ✅ 1) Importa do Google Calendar
   const importFromGoogle = useCallback(async () => {
     try {
@@ -167,13 +216,23 @@ export default function EscalaPage() {
 
       const json = (await res.json().catch(() => ({}))) as ImportResponse;
 
+      // Se backend indicar desconectado, iniciamos OAuth do jeito certo
       if (json?.connected === false) {
-        toast.error("Falha ao importar do Google Calendar (verifique credenciais).");
+        toast("Google não conectado. Vamos autorizar novamente…");
         console.error("[importar-google] connected:false", json);
+        window.location.href = "/api/google/oauth/start";
         return { ok: false, json };
       }
 
       if (json?.ok === false) {
+        // Se for cara de problema OAuth (invalid_grant etc), força reauth
+        if (looksLikeOAuthProblem(json)) {
+          toast("Credenciais do Google expiraram. Vamos autorizar novamente…");
+          console.error("[importar-google] oauth problem", json);
+          window.location.href = "/api/google/oauth/start";
+          return { ok: false, json };
+        }
+
         toast.error(json?.error ?? "Falha ao importar do Google Calendar");
         console.error("[importar-google] ok:false", json);
         return { ok: false, json };
@@ -210,10 +269,16 @@ export default function EscalaPage() {
     setItems(json.items ?? []);
   }, [days, start]);
 
-  // ✅ Atualizar = Importa Google + Recarrega lista
+  // ✅ Atualizar = (se precisar, autoriza Google) + Importa + Recarrega lista
   const refreshAll = useCallback(async () => {
     try {
       setRefreshing(true);
+
+      // 🔒 1) garante conexão Google (se não, redireciona e para)
+      const okGoogle = await ensureGoogleConnected();
+      if (!okGoogle) return;
+
+      // 🔁 2) importa e depois carrega do banco
       await importFromGoogle();
       await fetchEscalaOnly();
     } catch (e: any) {
@@ -223,7 +288,7 @@ export default function EscalaPage() {
     } finally {
       setRefreshing(false);
     }
-  }, [fetchEscalaOnly, importFromGoogle]);
+  }, [fetchEscalaOnly, importFromGoogle, ensureGoogleConnected]);
 
   // ✅ Members: rota correta para options
   const fetchMembers = useCallback(async () => {
@@ -491,7 +556,7 @@ export default function EscalaPage() {
                               : "sem horário"}
                           </div>
 
-                          {/* ✅ Botão ENVIAR AGORA (ao lado do Auto/Manual) */}
+                          {/* ✅ Botão ENVIAR AGORA */}
                           <button
                             type="button"
                             onClick={(e) => {
@@ -538,7 +603,6 @@ export default function EscalaPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/30" onClick={closeModal} />
 
-          {/* ✅ modal com altura máxima e layout em coluna */}
           <div className="relative w-[min(780px,92vw)] max-h-[90vh] bg-white rounded-2xl shadow-xl border border-gray-100 flex flex-col">
             <div className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-4 shrink-0">
               <div>
@@ -558,7 +622,6 @@ export default function EscalaPage() {
               </button>
             </div>
 
-            {/* ✅ conteúdo com scroll */}
             <div className="px-5 py-5 space-y-5 overflow-y-auto">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -600,7 +663,8 @@ export default function EscalaPage() {
 
                 {!selectedMemberId && (
                   <p className="text-xs font-semibold text-yellow-800 mt-2">
-                    ⚠️ Este item está <span className="underline">não vinculado</span> a um membro.
+                    ⚠️ Este item está <span className="underline">não vinculado</span> a um
+                    membro.
                   </p>
                 )}
               </div>
@@ -660,7 +724,6 @@ export default function EscalaPage() {
               </div>
             </div>
 
-            {/* ✅ rodapé fixo (botões nunca somem) */}
             <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2 shrink-0">
               <Button variant="secondary" onClick={closeModal} disabled={saving}>
                 Cancelar
