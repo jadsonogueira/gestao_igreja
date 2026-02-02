@@ -4,14 +4,13 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import { processEscalaEmail } from "@/lib/processEscalaEmail";
-import { Resend } from "resend";
+import { sendTriggerEmail } from "@/lib/email"; // <-- ajuste o caminho se o arquivo tiver outro nome
 
-const FIXED_TO = "jadsonnogueira@msn.com";
-
-function mustEnv(name: string) {
-  const v = process.env[name];
-  if (!v) throw new Error(`Env var ausente: ${name}`);
-  return v;
+function formatAgendamento(d: Date | string | null | undefined) {
+  if (!d) return "";
+  const dt = typeof d === "string" ? new Date(d) : d;
+  if (Number.isNaN(dt.getTime())) return "";
+  return dt.toLocaleString("pt-BR");
 }
 
 export async function POST() {
@@ -23,56 +22,50 @@ export async function POST() {
     });
 
     if (pendingEmail) {
+      // trava simples
       await prisma.emailLog.update({
         where: { id: pendingEmail.id },
         data: { status: "enviando" },
       });
 
       try {
-        const resend = new Resend(mustEnv("RESEND_API_KEY"));
-        const from = mustEnv("RESEND_FROM");
+        const grupo = String((pendingEmail as any)?.grupo ?? "");
 
-        // Campos podem variar; usamos de forma defensiva
-        const group = String((pendingEmail as any)?.grupo ?? (pendingEmail as any)?.group ?? "grupo");
-        const nome = String((pendingEmail as any)?.membroNome ?? (pendingEmail as any)?.nome ?? "");
-        const emailCadastro = String((pendingEmail as any)?.membroEmail ?? (pendingEmail as any)?.email ?? "");
-
-        // Se existir algum campo de mensagem, usamos. Se não existir, mandamos um gatilho padrão.
-        const msg =
-          String(
-            (pendingEmail as any)?.mensagem ??
-              (pendingEmail as any)?.mensagemEnviada ??
-              (pendingEmail as any)?.texto ??
-              (pendingEmail as any)?.body ??
-              ""
-          ).trim() || "Disparo automático do sistema (gatilho Power Automate).";
-
-        const subject = `[GESTAO_IGREJA] trigger | grupo=${group} | id=${pendingEmail.id}`;
-
-        // Importante: mantém "Mensagem:" pra seus fluxos que fazem split("Mensagem:")
-        const html = `
-          <div style="font-family: Arial, sans-serif; font-size: 14px; line-height: 1.4;">
-            <p><strong>Grupo:</strong> ${group}</p>
-            <p><strong>Nome (cadastro):</strong> ${nome}</p>
-            <p><strong>Email (cadastro):</strong> ${emailCadastro}</p>
-            <hr/>
-            <p><strong>Mensagem:</strong></p>
-            <pre style="white-space: pre-wrap;">${msg}</pre>
-          </div>
-        `;
-
-        const sendRes = await resend.emails.send({
-          from,
-          to: FIXED_TO, // ✅ sempre fixo
-          subject,
-          html,
+        // Busca o membro (pra pegar telefone + manter nome/email coerentes)
+        const member = await prisma.member.findUnique({
+          where: { id: (pendingEmail as any).membroId },
+          select: { nome: true, email: true, telefone: true },
         });
 
-        // defensivo: se vier erro no retorno
-        const maybeErr = (sendRes as any)?.error;
-        if (maybeErr) throw new Error(String(maybeErr?.message ?? maybeErr));
+        // Busca a mensagem padrão do grupo (e flyer, se houver)
+        const groupData = await prisma.messageGroup.findFirst({
+          where: { nomeGrupo: grupo as any },
+          select: { mensagemPadrao: true, flyerUrl: true },
+        });
 
-        // ✅ só marca "enviado" depois de enviar de verdade
+        const memberName = String(member?.nome ?? (pendingEmail as any)?.membroNome ?? "");
+        const memberEmail = String(member?.email ?? (pendingEmail as any)?.membroEmail ?? "");
+        const memberPhone = String(member?.telefone ?? "");
+        const agendamento = formatAgendamento((pendingEmail as any)?.dataAgendamento);
+        const mensagem = String(groupData?.mensagemPadrao ?? "");
+        const flyerUrl = groupData?.flyerUrl ?? null;
+
+        // ✅ ENVIO REAL no modelo antigo
+        const sendResult = await sendTriggerEmail(
+          grupo as any,
+          memberName,
+          memberEmail,
+          memberPhone,
+          agendamento,
+          mensagem,
+          flyerUrl
+        );
+
+        if (!sendResult?.success) {
+          throw new Error(sendResult?.message ?? "Falha ao enviar email");
+        }
+
+        // ✅ só marca enviado depois do envio OK
         await prisma.emailLog.update({
           where: { id: pendingEmail.id },
           data: { status: "enviado", dataEnvio: new Date() },
@@ -82,10 +75,9 @@ export async function POST() {
           success: true,
           data: { processed: 1, success: 1, errors: 0 },
           message: "Processado 1 envio (grupo)",
-          to: FIXED_TO,
         });
       } catch (e: any) {
-        // Se falhar, volta pra fila (não deixa preso em "enviando")
+        // volta pra fila se falhar (não deixa preso em enviando)
         await prisma.emailLog.update({
           where: { id: pendingEmail.id },
           data: { status: "pendente" },
