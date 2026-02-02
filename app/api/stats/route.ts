@@ -114,11 +114,13 @@ export async function GET() {
         prisma.emailLog.count({ where: { status: "pendente" } }),
       ]);
 
-    const [pastoral, devocional, visitantes, sumidos] = await Promise.all([
+    // ✅ AQUI: adiciona "convite"
+    const [pastoral, devocional, visitantes, sumidos, convite] = await Promise.all([
       prisma.member.count({ where: { grupoPastoral: true, ativo: true } }),
       prisma.member.count({ where: { grupoDevocional: true, ativo: true } }),
       prisma.member.count({ where: { grupoVisitantes: true, ativo: true } }),
       prisma.member.count({ where: { grupoSumidos: true, ativo: true } }),
+      prisma.member.count({ where: { grupoConvite: true, ativo: true } }),
     ]);
 
     const membersWithBirth = (await prisma.member.findMany({
@@ -129,7 +131,6 @@ export async function GET() {
     // ✅ HOJE em Toronto
     const { month: currentMonth, day: currentDay } = getTodayMonthDayInTimeZone(new Date());
 
-    // ✅ NASCIMENTO (se quiser manter, ok — mas o ideal é comparar no mesmo timezone do "hoje")
     const aniversariantesHoje = membersWithBirth.reduce((acc, m) => {
       const md = getBirthMonthDayInTimeZone(m.dataNascimento ?? null);
       if (!md) return acc;
@@ -181,6 +182,10 @@ export async function GET() {
         case "membros_sumidos":
           memberCount = sumidos;
           break;
+        // ✅ AQUI: trata "convite"
+        case "convite":
+          memberCount = convite;
+          break;
       }
 
       return {
@@ -214,9 +219,10 @@ export async function GET() {
           devocional,
           visitantes,
           membros_sumidos: sumidos,
+          convite, // ✅ AQUI: aparece no card
         },
         groups: groupsWithCounts,
-        proximosAniversariantes, // ✅ AGORA VAI
+        proximosAniversariantes,
       },
     });
   } catch (error) {
