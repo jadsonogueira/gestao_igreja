@@ -3,9 +3,15 @@ export type GroupType =
   | 'pastoral'
   | 'devocional'
   | 'visitantes'
-  | 'membros_sumidos';
+  | 'membros_sumidos'
+  | 'convite';
 
-export type FrequencyType = 'aniversario' | 'diaria' | 'semanal' | 'mensal';
+export type FrequencyType =
+  | 'aniversario'
+  | 'diaria'
+  | 'semanal'
+  | 'mensal';
+
 export type EmailStatus = 'pendente' | 'enviando' | 'enviado' | 'erro';
 
 // =========================
