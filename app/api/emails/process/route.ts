@@ -3,253 +3,130 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
-import { processEscalaEmail } from "@/lib/processEscalaEmail";
-
-// Labels dos grupos para o assunto do email (modelo antigo)
-const groupSubjectLabels: Record<string, string> = {
-  aniversario: "Envio aniversário",
-  pastoral: "Envio pastoral",
-  devocional: "Envio devocional",
-  visitantes: "Envio visitante",
-  membros_sumidos: "Envio sumido",
-  convite: "Envio convite",
-};
-
-// Labels dos grupos para o corpo do email (modelo antigo)
-const groupFlowLabels: Record<string, string> = {
-  aniversario: "Envio aniversário",
-  pastoral: "Envio pastoral",
-  devocional: "Envio devocional",
-  visitantes: "Envio visitante",
-  membros_sumidos: "Envio sumido",
-  convite: "Envio convite",
-};
-
-function getRequiredEnv(name: string): string {
-  const v = process.env[name];
-  if (!v) throw new Error(`${name} não configurado`);
-  return v;
-}
-
-function looksLikeUrl(value: string) {
-  return /^https?:\/\//i.test(value);
-}
-
-function formatAgendamento(value: Date | string | null | undefined) {
-  if (!value) return "";
-  const d = typeof value === "string" ? new Date(value) : value;
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString("pt-BR");
-}
-
-// baixar imagem (http/https) e converter em base64 para anexar
-async function downloadImageAsBase64(
-  url: string
-): Promise<{ content: string; filename: string; contentType: string } | null> {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-
-    const arrayBuffer = await res.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const base64 = buffer.toString("base64");
-
-    const contentType = res.headers.get("content-type") ?? "image/png";
-    const filename = "panfleto." + (contentType.split("/")[1] ?? "png");
-
-    return { content: base64, filename, contentType };
-  } catch {
-    return null;
-  }
-}
-
-async function sendTriggerEmailLikeOldModel(params: {
-  grupo: string;
-  memberName: string;
-  memberEmail: string;
-  memberPhone: string;
-  agendamento: string;
-  mensagem: string;
-  flyerUrl?: string | null;
-}): Promise<{ success: boolean; message?: string; id?: string }> {
-  const resendApiKey = getRequiredEnv("RESEND_API_KEY");
-  const from = getRequiredEnv("RESEND_FROM");
-  const automationTo = getRequiredEnv("AUTOMATION_EMAIL_TO");
-
-  const subjectLabel = groupSubjectLabels[params.grupo] ?? "Envio igreja";
-  const fluxo = groupFlowLabels[params.grupo] ?? "Envio igreja";
-
-  const subject = `[GESTAO_IGREJA]|${subjectLabel}|grupo=${params.grupo}|membro=${params.memberName}`;
-
-  const htmlBody = `
-    <div style="font-family: Arial, sans-serif; padding: 20px;">
-      <p><strong>fluxo:</strong> ${fluxo}</p>
-      <p><strong>grupo:</strong> ${params.grupo}</p>
-      <hr/>
-      <p><strong>Nome:</strong> ${params.memberName ?? ""}</p>
-      <p><strong>Email (do membro):</strong> ${params.memberEmail ?? ""}</p>
-      <p><strong>Telefone:</strong> ${params.memberPhone ?? ""}</p>
-      <p><strong>Agendamento:</strong> ${params.agendamento ?? ""}</p>
-      <hr/>
-      <p><strong>Mensagem:</strong></p>
-      <pre style="white-space:pre-wrap; font-family: Arial, sans-serif;">${params.mensagem ?? ""}</pre>
-      ${params.flyerUrl ? '<p><em>📎 Panfleto anexado a este email</em></p>' : ""}
-    </div>
-  `;
-
-  const emailPayload: Record<string, unknown> = {
-    from,
-    to: [automationTo],
-    subject,
-    html: htmlBody,
-  };
-
-  if (params.flyerUrl && looksLikeUrl(params.flyerUrl)) {
-    const imageData = await downloadImageAsBase64(params.flyerUrl);
-    if (imageData) {
-      emailPayload.attachments = [
-        {
-          filename: imageData.filename,
-          content: imageData.content,
-          content_type: imageData.contentType,
-        },
-      ];
-    }
-  }
-
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${resendApiKey}`,
-    },
-    body: JSON.stringify(emailPayload),
-  });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    return {
-      success: false,
-      message: (result?.message as string) ?? "Erro ao enviar email",
-    };
-  }
-
-  return { success: true, id: result?.id };
-}
+import { sendTriggerEmail } from "@/lib/email-service";
+import type { GroupType } from "@/lib/types";
 
 export async function POST() {
   try {
-    // 1) processa fila de grupos
+    // Get next pending email
     const pendingEmail = await prisma.emailLog.findFirst({
       where: { status: "pendente" },
-      orderBy: { createdAt: "asc" },
+      orderBy: { dataAgendamento: "asc" },
     });
 
-    if (pendingEmail) {
-      await prisma.emailLog.update({
-        where: { id: pendingEmail.id },
-        data: { status: "enviando" },
-      });
-
-      try {
-        const grupo = String((pendingEmail as any)?.grupo ?? "");
-
-        const member = await prisma.member.findUnique({
-          where: { id: (pendingEmail as any).membroId },
-          select: { nome: true, email: true, telefone: true },
-        });
-
-        const mg = await prisma.messageGroup.findFirst({
-          where: { nomeGrupo: grupo as any },
-          select: { mensagemPadrao: true, flyerUrl: true },
-        });
-
-        const memberName = String(member?.nome ?? (pendingEmail as any)?.membroNome ?? "");
-        const memberEmail = String(member?.email ?? (pendingEmail as any)?.membroEmail ?? "");
-        const memberPhone = String(member?.telefone ?? "");
-        const agendamento = formatAgendamento((pendingEmail as any)?.dataAgendamento);
-        const mensagem = String(mg?.mensagemPadrao ?? "");
-        const flyerUrl = mg?.flyerUrl ?? null;
-
-        const sendRes = await sendTriggerEmailLikeOldModel({
-          grupo,
-          memberName,
-          memberEmail,
-          memberPhone,
-          agendamento,
-          mensagem,
-          flyerUrl,
-        });
-
-        if (!sendRes.success) {
-          throw new Error(sendRes.message ?? "Falha ao enviar email");
-        }
-
-        await prisma.emailLog.update({
-          where: { id: pendingEmail.id },
-          data: { status: "enviado", dataEnvio: new Date() },
-        });
-
-        return NextResponse.json({
-          success: true,
-          data: { processed: 1, success: 1, errors: 0 },
-          message: "Processado 1 envio (grupo)",
-        });
-      } catch (e: any) {
-        await prisma.emailLog.update({
-          where: { id: pendingEmail.id },
-          data: { status: "pendente" },
-        });
-
-        return NextResponse.json(
-          { success: false, error: "Erro ao enviar (grupo)", details: String(e?.message ?? e) },
-          { status: 502 }
-        );
-      }
-    }
-
-    // 2) processa escala
-    const now = new Date();
-
-    const pendingEscala = await prisma.escala.findFirst({
-      where: {
-        status: "PENDENTE",
-        envioAutomatico: true,
-        enviarEm: { lte: now },
-      },
-      orderBy: { enviarEm: "asc" },
-    });
-
-    if (!pendingEscala) {
+    if (!pendingEmail) {
       return NextResponse.json({
         success: true,
         data: { processed: 0, success: 0, errors: 0 },
-        message: "Nenhum envio pendente",
+        message: "Nenhum email pendente",
       });
     }
 
-    const result = await processEscalaEmail(pendingEscala.id, {
-      manual: false,
-      sendAt: pendingEscala.enviarEm,
+    // Mark as sending
+    await prisma.emailLog.update({
+      where: { id: pendingEmail.id },
+      data: { status: "enviando" },
     });
 
-    if (!result.ok) {
+    // Get group config and member
+    const [group, member] = await Promise.all([
+      prisma.messageGroup.findFirst({ where: { nomeGrupo: pendingEmail.grupo } }),
+      prisma.member.findUnique({ where: { id: pendingEmail.membroId } }),
+    ]);
+
+    if (!member) {
+      await prisma.emailLog.update({
+        where: { id: pendingEmail.id },
+        data: { status: "erro", erroMensagem: "Membro não encontrado" },
+      });
+
+      return NextResponse.json({
+        success: true,
+        data: { processed: 1, success: 0, errors: 1 },
+      });
+    }
+
+    // Format date (informativo no corpo do email)
+    const agendamento = new Date().toLocaleString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    // destino fixo (gatilho Power Automate)
+    const automationTo = process.env.AUTOMATION_EMAIL_TO;
+
+    if (!automationTo) {
+      await prisma.emailLog.update({
+        where: { id: pendingEmail.id },
+        data: { status: "erro", erroMensagem: "AUTOMATION_EMAIL_TO não configurado" },
+      });
+
       return NextResponse.json(
-        { success: false, error: "Erro ao enviar escala", details: result.error },
-        { status: 502 }
+        { success: false, error: "AUTOMATION_EMAIL_TO não configurado" },
+        { status: 500 }
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      data: { processed: 1, success: 1, errors: 0 },
-      message: "Processado 1 envio (escala)",
-    });
-  } catch (err: any) {
-    console.error("[emails/process] erro:", err);
+    const result = await sendTriggerEmail(
+      pendingEmail.grupo as GroupType,
+      member.nome ?? "",
+      member.email ?? "", // informativo
+      member.telefone ?? "",
+      agendamento,
+      group?.mensagemPadrao ?? "",
+      group?.flyerUrl
+    );
+
+    if (result.success) {
+      // 1) marca o log como enviado
+      await prisma.emailLog.update({
+        where: { id: pendingEmail.id },
+        data: {
+          status: "enviado",
+          dataEnvio: new Date(),
+          mensagemEnviada: group?.mensagemPadrao ?? "",
+        },
+      });
+
+      // 2) ✅ REGRA NOVA:
+      // Se foi mensagem do grupo "visitantes", remove o membro desse grupo
+      if (pendingEmail.grupo === "visitantes") {
+        try {
+          await prisma.member.update({
+            where: { id: pendingEmail.membroId },
+            data: { grupoVisitantes: false },
+          });
+        } catch (err) {
+          // Não falha o envio por causa disso; apenas registra no log do servidor
+          console.error(
+            "[emails/process] Falha ao desmarcar grupoVisitantes:",
+            err
+          );
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: { processed: 1, success: 1, errors: 0 },
+      });
+    } else {
+      await prisma.emailLog.update({
+        where: { id: pendingEmail.id },
+        data: { status: "erro", erroMensagem: result.message ?? "Erro desconhecido" },
+      });
+
+      return NextResponse.json({
+        success: true,
+        data: { processed: 1, success: 0, errors: 1 },
+      });
+    }
+  } catch (error) {
+    console.error("Error processing email:", error);
     return NextResponse.json(
-      { success: false, error: "Erro interno", details: String(err?.message ?? err) },
+      { success: false, error: "Erro ao processar email" },
       { status: 500 }
     );
   }
