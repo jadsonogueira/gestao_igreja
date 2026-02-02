@@ -1,4 +1,6 @@
-const INTERVAL = Number(process.env.SCHEDULER_INTERVAL_MS || 60000);
+const CHECK_INTERVAL = Number(process.env.SCHEDULER_CHECK_INTERVAL_MS || 10 * 60 * 1000); // 10 min
+const PROCESS_INTERVAL = Number(process.env.SCHEDULER_PROCESS_INTERVAL_MS || 60 * 1000); // 1 min
+
 const BASE_URL = process.env.BASE_URL;
 
 if (!BASE_URL) {
@@ -6,36 +8,53 @@ if (!BASE_URL) {
   process.exit(1);
 }
 
-let running = false;
+let runningCheck = false;
+let runningProcess = false;
 
-console.log("[Scheduler] Iniciado com intervalo:", INTERVAL, "ms");
+console.log("[Scheduler] Iniciado");
 console.log("[Scheduler] BASE_URL:", BASE_URL);
+console.log("[Scheduler] CHECK_INTERVAL:", CHECK_INTERVAL, "ms");
+console.log("[Scheduler] PROCESS_INTERVAL:", PROCESS_INTERVAL, "ms");
 
-async function tick() {
-  if (running) return;
-  running = true;
+async function tickCheck() {
+  if (runningCheck) return;
+  runningCheck = true;
 
   try {
-    // 1) verifica agendamentos (enfileira o que estiver no horário/dia)
     const resCheck = await fetch(`${BASE_URL}/api/emails/check-schedule`, {
       method: "POST",
     });
     const jsonCheck = await resCheck.json();
     console.log("[Scheduler] Check:", jsonCheck);
+  } catch (err) {
+    console.error("[Scheduler] Check erro:", err);
+  } finally {
+    runningCheck = false;
+  }
+}
 
-    // 2) processa 1 email por tick (1 por minuto)
+async function tickProcess() {
+  if (runningProcess) return;
+  runningProcess = true;
+
+  try {
     const resProcess = await fetch(`${BASE_URL}/api/emails/process`, {
       method: "POST",
     });
     const jsonProcess = await resProcess.json();
     console.log("[Scheduler] Process:", jsonProcess);
   } catch (err) {
-    console.error("[Scheduler] Erro:", err);
+    console.error("[Scheduler] Process erro:", err);
   } finally {
-    running = false;
+    runningProcess = false;
   }
 }
 
 // dá 5s para o server subir
-setTimeout(tick, 5000);
-setInterval(tick, INTERVAL);
+setTimeout(() => {
+  tickCheck();
+  tickProcess();
+}, 5000);
+
+setInterval(tickCheck, CHECK_INTERVAL);
+setInterval(tickProcess, PROCESS_INTERVAL);
