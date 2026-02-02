@@ -24,7 +24,7 @@ function normalizeFrequency(value: string | null | undefined) {
   if (v === "semanal") return "semanal";
   if (v === "mensal") return "mensal";
   if (v === "aniversario") return "aniversario";
-  return v; // fallback
+  return v;
 }
 
 function getNowPartsInTZ(date: Date) {
@@ -79,7 +79,6 @@ function hhmm(h: number | null | undefined, m: number | null | undefined) {
 
 export async function POST() {
   try {
-    // ✅ respeita automacao geral
     let cfg = await prisma.systemConfig.findFirst();
     if (!cfg) cfg = await prisma.systemConfig.create({ data: { automacaoAtiva: true } });
 
@@ -88,7 +87,7 @@ export async function POST() {
         success: true,
         processed: 0,
         results: [],
-        message: "Automação geral desativada (SystemConfig.automacaoAtiva=false)",
+        message: "Automação geral desativada",
       });
     }
 
@@ -103,34 +102,9 @@ export async function POST() {
       }`
     );
 
-    // ✅ busca todos os grupos ativos
-    const groupsRaw = await prisma.messageGroup.findMany({
+    const groups = await prisma.messageGroup.findMany({
       where: { ativo: true },
     });
-
-    const groups = groupsRaw as Array<{
-      nomeGrupo: string;
-      frequenciaEnvio: string | null;
-      horaEnvio: number | null;
-      minutoEnvio: number | null;
-      diaSemana: number | null;
-      diaMes: number | null;
-      ultimoEnvio: Date | null;
-    }>;
-
-    if (DEBUG_SCHEDULE) {
-      console.log(
-        `[Schedule Check] grupos ativos (${groups.length}):`,
-        groups.map((g) => ({
-          nome: g.nomeGrupo,
-          freq: normalizeFrequency(g.frequenciaEnvio),
-          horario: hhmm(g.horaEnvio, g.minutoEnvio),
-          diaSemana: g.diaSemana,
-          diaMes: g.diaMes,
-          ultimoEnvio: g.ultimoEnvio ? new Date(g.ultimoEnvio).toISOString() : null,
-        }))
-      );
-    }
 
     const groupsToSend: string[] = [];
 
@@ -138,67 +112,36 @@ export async function POST() {
       const groupHour = group.horaEnvio ?? null;
       const groupMinute = group.minutoEnvio ?? 0;
 
-      // Se não tem hora, não agenda automático
-      if (groupHour === null) {
-        if (DEBUG_SCHEDULE) console.log(`[Decision] ${group.nomeGrupo} -> IGNORADO (horaEnvio=null)`);
-        continue;
-      }
+      if (groupHour === null) continue;
 
-      // ✅ catch-up do dia: se já passou do horário programado, ainda pode enviar (se não enviou hoje)
       const timeReached =
         nowParts.hour > groupHour || (nowParts.hour === groupHour && nowParts.minute >= groupMinute);
 
-      if (!timeReached) {
-        if (DEBUG_SCHEDULE) {
-          console.log(`[Decision] ${group.nomeGrupo} -> AINDA NAO (${hhmm(groupHour, groupMinute)})`);
-        }
-        continue;
-      }
+      if (!timeReached) continue;
 
-      // ✅ evita duplicado no mesmo dia (no timezone da app)
       if (group.ultimoEnvio) {
         const lastParts = getNowPartsInTZ(new Date(group.ultimoEnvio));
-        if (lastParts.dayKey === nowParts.dayKey) {
-          console.log(`[Skip] ${group.nomeGrupo} já foi enviado hoje (${lastParts.dayKey})`);
-          continue;
-        }
+        if (lastParts.dayKey === nowParts.dayKey) continue;
       }
 
       const freq = normalizeFrequency(group.frequenciaEnvio);
 
       let shouldSend = false;
-      let reason = "";
 
       switch (freq) {
         case "aniversario":
         case "diaria":
           shouldSend = true;
-          reason = `freq=${freq}`;
           break;
-
         case "semanal":
           shouldSend = group.diaSemana === nowParts.dow;
-          reason = `freq=semanal (diaSemana=${group.diaSemana} vs hoje=${nowParts.dow})`;
           break;
-
         case "mensal":
           shouldSend = group.diaMes === nowParts.day;
-          reason = `freq=mensal (diaMes=${group.diaMes} vs hoje=${nowParts.day})`;
-          break;
-
-        default:
-          shouldSend = false;
-          reason = `freq=${freq || "vazia"} (nao reconhecida)`;
           break;
       }
 
-      if (!shouldSend) {
-        if (DEBUG_SCHEDULE) console.log(`[Decision] ${group.nomeGrupo} -> NAO ENVIA (${reason})`);
-        continue;
-      }
-
-      if (DEBUG_SCHEDULE) console.log(`[Decision] ${group.nomeGrupo} -> ENVIAR (${reason})`);
-      groupsToSend.push(group.nomeGrupo);
+      if (shouldSend) groupsToSend.push(group.nomeGrupo);
     }
 
     const results: any[] = [];
@@ -208,10 +151,8 @@ export async function POST() {
         let members: MemberMini[] = [];
 
         if (groupName === "aniversario") {
-          // ✅ Hoje (timezone da app)
           const { month: currentMonth, day: currentDay } = nowParts;
 
-          // ✅ Nascimento sempre por UTC month/day (evita “voltar um dia” no Canadá)
           const birthdayCandidates = (await prisma.member.findMany({
             where: { ativo: true, dataNascimento: { not: null } },
             select: { id: true, nome: true, email: true, telefone: true, dataNascimento: true },
@@ -222,14 +163,7 @@ export async function POST() {
             if (!md) return false;
             return md.month === currentMonth && md.day === currentDay;
           });
-
-          if (DEBUG_SCHEDULE) {
-            console.log(
-              `[Members] aniversario -> candidatos=${birthdayCandidates.length} | aniversariantesHoje=${members.length} (hoje ${currentMonth}/${currentDay})`
-            );
-          }
         } else {
-          // ✅ INCLUIU "convite"
           const groupFieldMap: Record<
             string,
             "grupoPastoral" | "grupoDevocional" | "grupoVisitantes" | "grupoSumidos" | "grupoConvite"
@@ -249,10 +183,6 @@ export async function POST() {
               select: { id: true, nome: true, email: true, telefone: true },
             })) as MemberMini[];
           }
-
-          if (DEBUG_SCHEDULE) {
-            console.log(`[Members] ${groupName} -> field=${field ?? "N/A"} | membros=${members.length}`);
-          }
         }
 
         if (members.length === 0) {
@@ -260,14 +190,11 @@ export async function POST() {
             group: groupName,
             success: true,
             queued: 0,
-            message:
-              groupName === "aniversario" ? "Nenhum aniversariante hoje" : "Nenhum membro encontrado",
+            message: "Nenhum membro encontrado",
           });
-          console.log(`[Skip] ${groupName} - nenhum membro`);
           continue;
         }
 
-        // ✅ Anti-duplicação: se já existe pendente/enviando para o mesmo membro+grupo, não cria de novo
         const memberIds = members.map((m) => m.id);
 
         const existingPending = await prisma.emailLog.findMany({
@@ -283,20 +210,17 @@ export async function POST() {
         const membersToQueue = members.filter((m) => !alreadyQueued.has(String(m.id)));
 
         if (membersToQueue.length === 0) {
-          results.push({
-            group: groupName,
-            success: true,
-            queued: 0,
-            message: "Todos já estavam na fila (pendente/enviando)",
-          });
-          console.log(`[Skip] ${groupName} - todos já estavam na fila`);
-
-          // Marca ultimoEnvio mesmo assim, para não tentar de novo no mesmo dia
           await prisma.messageGroup.updateMany({
             where: { nomeGrupo: groupName },
             data: { ultimoEnvio: new Date() },
           });
 
+          results.push({
+            group: groupName,
+            success: true,
+            queued: 0,
+            message: "Todos já estavam na fila",
+          });
           continue;
         }
 
@@ -317,9 +241,7 @@ export async function POST() {
         });
 
         results.push({ group: groupName, success: true, queued: membersToQueue.length });
-        console.log(`[Queued] ${groupName} - ${membersToQueue.length} email(s)`);
       } catch (error) {
-        console.error(`[Error] Grupo ${groupName}:`, error);
         results.push({
           group: groupName,
           success: false,
@@ -343,7 +265,6 @@ export async function POST() {
       debug: DEBUG_SCHEDULE,
     });
   } catch (error) {
-    console.error("[Schedule Check Error]:", error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : "Erro ao verificar agendamentos" },
       { status: 500 }
