@@ -5,22 +5,24 @@ import { NextResponse } from "next/server";
 import prisma from "@/lib/db";
 import { processEscalaEmail } from "@/lib/processEscalaEmail";
 
-// Labels dos grupos para o assunto do email (igual ao antigo)
+// Labels dos grupos para o assunto do email (modelo antigo)
 const groupSubjectLabels: Record<string, string> = {
   aniversario: "Envio aniversário",
   pastoral: "Envio pastoral",
   devocional: "Envio devocional",
   visitantes: "Envio visitante",
   membros_sumidos: "Envio sumido",
+  convite: "Envio convite",
 };
 
-// Labels dos grupos para o corpo do email (igual ao antigo)
+// Labels dos grupos para o corpo do email (modelo antigo)
 const groupFlowLabels: Record<string, string> = {
   aniversario: "Envio aniversário",
   pastoral: "Envio pastoral",
   devocional: "Envio devocional",
   visitantes: "Envio visitante",
   membros_sumidos: "Envio sumido",
+  convite: "Envio convite",
 };
 
 function getRequiredEnv(name: string): string {
@@ -97,12 +99,11 @@ async function sendTriggerEmailLikeOldModel(params: {
 
   const emailPayload: Record<string, unknown> = {
     from,
-    to: [automationTo], // ✅ SEMPRE destino fixo
+    to: [automationTo],
     subject,
     html: htmlBody,
   };
 
-  // ✅ Anexo só se for URL http(s) (para não quebrar deploy com S3/path)
   if (params.flyerUrl && looksLikeUrl(params.flyerUrl)) {
     const imageData = await downloadImageAsBase64(params.flyerUrl);
     if (imageData) {
@@ -139,7 +140,7 @@ async function sendTriggerEmailLikeOldModel(params: {
 
 export async function POST() {
   try {
-    // 1) pega 1 item pendente da fila de EmailLog (grupos)
+    // 1) processa fila de grupos
     const pendingEmail = await prisma.emailLog.findFirst({
       where: { status: "pendente" },
       orderBy: { createdAt: "asc" },
@@ -154,13 +155,11 @@ export async function POST() {
       try {
         const grupo = String((pendingEmail as any)?.grupo ?? "");
 
-        // pega telefone do membro (o EmailLog não grava telefone)
         const member = await prisma.member.findUnique({
           where: { id: (pendingEmail as any).membroId },
           select: { nome: true, email: true, telefone: true },
         });
 
-        // pega mensagemPadrao do grupo (e flyerUrl)
         const mg = await prisma.messageGroup.findFirst({
           where: { nomeGrupo: grupo as any },
           select: { mensagemPadrao: true, flyerUrl: true },
@@ -198,7 +197,6 @@ export async function POST() {
           message: "Processado 1 envio (grupo)",
         });
       } catch (e: any) {
-        // volta pra fila (não deixa preso em enviando)
         await prisma.emailLog.update({
           where: { id: pendingEmail.id },
           data: { status: "pendente" },
@@ -211,7 +209,7 @@ export async function POST() {
       }
     }
 
-    // 2) se não tem EmailLog pendente, tenta Escala pendente
+    // 2) processa escala
     const now = new Date();
 
     const pendingEscala = await prisma.escala.findFirst({
