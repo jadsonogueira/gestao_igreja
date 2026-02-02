@@ -22,7 +22,8 @@ function getTodayMonthDayInTimeZone(date: Date) {
 function getBirthMonthDayUTC(dateInput: Date | string | null | undefined) {
   if (!dateInput) return null;
 
-  const d = typeof dateInput === "string" ? new Date(dateInput) : new Date(dateInput);
+  const d =
+    typeof dateInput === "string" ? new Date(dateInput) : dateInput;
 
   if (Number.isNaN(d.getTime())) return null;
 
@@ -32,12 +33,16 @@ function getBirthMonthDayUTC(dateInput: Date | string | null | undefined) {
   };
 }
 
+/* =========================
+   GROUP TYPES
+========================= */
 type GroupType =
   | "aniversario"
   | "pastoral"
   | "devocional"
   | "visitantes"
-  | "membros_sumidos";
+  | "membros_sumidos"
+  | "convite";
 
 const validGroups: GroupType[] = [
   "aniversario",
@@ -45,8 +50,12 @@ const validGroups: GroupType[] = [
   "devocional",
   "visitantes",
   "membros_sumidos",
+  "convite",
 ];
 
+/* =========================
+   MEMBER MINI
+========================= */
 type MemberMini = {
   id: string;
   nome: string;
@@ -55,12 +64,17 @@ type MemberMini = {
   dataNascimento?: Date | null;
 };
 
+/* =========================
+   POST
+========================= */
 export async function POST(request: Request) {
   try {
     const body: unknown = await request.json();
 
     const grupo =
-      typeof body === "object" && body !== null && "grupo" in body
+      typeof body === "object" &&
+      body !== null &&
+      "grupo" in body
         ? (body as { grupo?: unknown }).grupo
         : undefined;
 
@@ -75,52 +89,88 @@ export async function POST(request: Request) {
 
     let members: MemberMini[] = [];
 
+    /* =========================
+       ANIVERSÁRIO
+    ========================= */
     if (group === "aniversario") {
-      // ✅ HOJE no timezone da aplicação (Toronto)
-      const { month: currentMonth, day: currentDay } = getTodayMonthDayInTimeZone(new Date());
+      const { month: currentMonth, day: currentDay } =
+        getTodayMonthDayInTimeZone(new Date());
 
-      const birthdayCandidates = (await prisma.member.findMany({
-        where: { ativo: true, dataNascimento: { not: null } },
-        select: { id: true, nome: true, email: true, telefone: true, dataNascimento: true },
-      })) as Array<MemberMini & { dataNascimento: Date | null }>;
+      const birthdayCandidates = await prisma.member.findMany({
+        where: {
+          ativo: true,
+          dataNascimento: { not: null },
+        },
+        select: {
+          id: true,
+          nome: true,
+          email: true,
+          telefone: true,
+          dataNascimento: true,
+        },
+      });
 
-      // ✅ NASCIMENTO sempre em UTC (não usar timezone aqui!)
       members = birthdayCandidates.filter((m) => {
-        const md = getBirthMonthDayUTC(m.dataNascimento ?? null);
+        const md = getBirthMonthDayUTC(m.dataNascimento);
         if (!md) return false;
         return md.month === currentMonth && md.day === currentDay;
       });
-    } else {
+    } 
+    /* =========================
+       DEMAIS GRUPOS
+    ========================= */
+    else {
       const groupFieldMap: Record<
         Exclude<GroupType, "aniversario">,
-        "grupoPastoral" | "grupoDevocional" | "grupoVisitantes" | "grupoSumidos"
+        | "grupoPastoral"
+        | "grupoDevocional"
+        | "grupoVisitantes"
+        | "grupoSumidos"
+        | "grupoConvite"
       > = {
         pastoral: "grupoPastoral",
         devocional: "grupoDevocional",
         visitantes: "grupoVisitantes",
         membros_sumidos: "grupoSumidos",
+        convite: "grupoConvite",
       };
 
-      const field = groupFieldMap[group as Exclude<GroupType, "aniversario">];
+      const field =
+        groupFieldMap[group as Exclude<GroupType, "aniversario">];
 
-      members = (await prisma.member.findMany({
-        where: { ativo: true, [field]: true },
-        select: { id: true, nome: true, email: true, telefone: true },
-      })) as MemberMini[];
+      members = await prisma.member.findMany({
+        where: {
+          ativo: true,
+          [field]: true,
+        },
+        select: {
+          id: true,
+          nome: true,
+          email: true,
+          telefone: true,
+        },
+      });
     }
 
+    /* =========================
+       NENHUM MEMBRO
+    ========================= */
     if (members.length === 0) {
       return NextResponse.json({
         success: true,
         data: { queued: 0 },
-        message: group === "aniversario"
-          ? "Nenhum aniversariante hoje"
-          : "Nenhum membro encontrado para este grupo",
+        message:
+          group === "aniversario"
+            ? "Nenhum aniversariante hoje"
+            : "Nenhum membro encontrado para este grupo",
       });
     }
 
+    /* =========================
+       ENFILEIRAR EMAILS
+    ========================= */
     await prisma.emailLog.createMany({
-      data: members.map((m: MemberMini) => ({
+      data: members.map((m) => ({
         grupo: group,
         membroId: m.id,
         membroNome: m.nome ?? "",
@@ -130,6 +180,9 @@ export async function POST(request: Request) {
       })),
     });
 
+    /* =========================
+       ATUALIZA ÚLTIMO ENVIO
+    ========================= */
     await prisma.messageGroup.updateMany({
       where: { nomeGrupo: group },
       data: { ultimoEnvio: new Date() },
