@@ -9,6 +9,7 @@ const groupSubjectLabels: Record<string, string> = {
   devocional: "Envio devocional",
   visitantes: "Envio visitante",
   membros_sumidos: "Envio sumido",
+  convite: "Envio convite",
 };
 
 // Labels dos grupos para o corpo do email
@@ -18,6 +19,7 @@ const groupFlowLabels: Record<string, string> = {
   devocional: "Envio devocional",
   visitantes: "Envio visitante",
   membros_sumidos: "Envio sumido",
+  convite: "Envio convite",
 };
 
 // Labels de Escala (assunto e corpo)
