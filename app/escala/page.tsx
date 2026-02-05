@@ -11,6 +11,7 @@ import {
   ToggleLeft,
   ToggleRight,
   Send,
+  Trash2,
 } from "lucide-react";
 
 import Button from "@/components/ui/button";
@@ -31,10 +32,10 @@ type EscalaItem = {
 
   // Etapa 3
   envioAutomatico?: boolean;
-  enviarEm?: string; // ISO
+  enviarEm?: string | null; // ISO (pode ser null)
+  status?: string | null;
 
-  // ✅ (para exibir "último envio")
-  status?: string; // "PENDENTE" | "ENVIADO" | ...
+  // ✅ novo (para “Enviado em”)
   dataEnvio?: string | null; // ISO
 };
 
@@ -105,13 +106,8 @@ function dateKeyFromISO(iso: string) {
   return yyyyMMddUTC(d);
 }
 
-// ✅ dataEvento “date-only” em UTC (evita -1 dia)
-function formatEventDateBRFromISO(iso: string) {
-  return toBRDateFromYYYYMMDD(dateKeyFromISO(iso));
-}
-
 // ISO -> input datetime-local (YYYY-MM-DDTHH:mm)
-function isoToLocalInputValue(iso?: string) {
+function isoToLocalInputValue(iso?: string | null) {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
@@ -141,6 +137,13 @@ function looksLikeOAuthProblem(json: any) {
   );
 }
 
+function formatPtBR(iso?: string | null) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("pt-BR");
+}
+
 export default function EscalaPage() {
   const [days, setDays] = useState<number>(60);
   const [loading, setLoading] = useState(true);
@@ -167,6 +170,7 @@ export default function EscalaPage() {
   const [mensagem, setMensagem] = useState<string>("");
 
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // ✅ Enviar agora (loading por item)
   const [sendingNowId, setSendingNowId] = useState<string | null>(null);
@@ -338,13 +342,15 @@ export default function EscalaPage() {
     setMemberSearch("");
 
     setEnvioAutomatico(it.envioAutomatico ?? true);
-    setEnviarEmLocal(isoToLocalInputValue(it.enviarEm));
+    setEnviarEmLocal(isoToLocalInputValue(it.enviarEm ?? null));
     setMensagem((it.mensagem ?? "").toString());
 
     setOpen(true);
   }, []);
 
   const closeModal = useCallback(() => {
+    if (saving || deleting) return;
+
     setOpen(false);
     setSelectedItem(null);
 
@@ -357,7 +363,8 @@ export default function EscalaPage() {
     setMensagem("");
 
     setSaving(false);
-  }, []);
+    setDeleting(false);
+  }, [saving, deleting]);
 
   const filteredMembers = useMemo(() => {
     const q = memberSearch.trim().toLowerCase();
@@ -387,7 +394,6 @@ export default function EscalaPage() {
       };
 
       if (enviarEmISO) payload.enviarEm = enviarEmISO;
-
       payload.membroId = selectedMemberId ? selectedMemberId : null;
 
       const res = await fetch(`/api/escala/${selectedItem.id}`, {
@@ -454,6 +460,44 @@ export default function EscalaPage() {
     },
     [fetchEscalaOnly]
   );
+
+  // ✅ EXCLUIR ITEM
+  const deleteSelected = useCallback(async () => {
+    if (!selectedItem) return;
+
+    const ok = window.confirm(
+      `Excluir esta escala?\n\n${tipoLabel[selectedItem.tipo] ?? selectedItem.tipo} — ${new Date(
+        selectedItem.dataEvento
+      ).toLocaleDateString("pt-BR")}\nResponsável: ${selectedItem.nomeResponsavel}\n\nEssa ação remove do app.`
+    );
+
+    if (!ok) return;
+
+    try {
+      setDeleting(true);
+
+      const res = await fetch(`/api/escala/${selectedItem.id}`, {
+        method: "DELETE",
+      });
+
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok || !json?.ok) {
+        toast.error(json?.error ?? "Falha ao excluir");
+        console.error("DELETE /api/escala/[id] error:", json);
+        return;
+      }
+
+      toast.success("Escala excluída.");
+      await fetchEscalaOnly();
+      closeModal();
+    } catch (e) {
+      console.error(e);
+      toast.error("Falha ao excluir");
+    } finally {
+      setDeleting(false);
+    }
+  }, [selectedItem, fetchEscalaOnly, closeModal]);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -544,9 +588,7 @@ export default function EscalaPage() {
                         <div className="flex items-center gap-3">
                           <div className="text-xs text-gray-500 flex items-center gap-1">
                             <Clock className="w-4 h-4" />
-                            {it.enviarEm
-                              ? new Date(it.enviarEm).toLocaleString("pt-BR")
-                              : "sem horário"}
+                            {it.enviarEm ? formatPtBR(it.enviarEm) : "sem horário"}
                           </div>
 
                           <button
@@ -599,21 +641,39 @@ export default function EscalaPage() {
             <div className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-4 shrink-0">
               <div>
                 <div className="text-lg font-semibold text-gray-900">Editar escala</div>
-
-                {/* ✅ CORRIGIDO: data do evento sem “-1 dia” */}
                 <div className="text-sm text-gray-600 mt-1">
                   {tipoLabel[selectedItem.tipo] ?? selectedItem.tipo} —{" "}
-                  {formatEventDateBRFromISO(selectedItem.dataEvento)}
+                  {new Date(selectedItem.dataEvento).toLocaleDateString("pt-BR")}
                 </div>
               </div>
 
-              <button
-                onClick={closeModal}
-                className="p-2 rounded-lg hover:bg-gray-100"
-                aria-label="Fechar"
-              >
-                <X className="w-5 h-5 text-gray-700" />
-              </button>
+              {/* ✅ AQUI volta o botão de excluir + o X */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={deleteSelected}
+                  disabled={saving || deleting}
+                  className={cn(
+                    "p-2 rounded-lg border",
+                    saving || deleting
+                      ? "border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed"
+                      : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                  )}
+                  aria-label="Excluir escala"
+                  title="Excluir do app"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+
+                <button
+                  onClick={closeModal}
+                  className="p-2 rounded-lg hover:bg-gray-100"
+                  aria-label="Fechar"
+                  disabled={saving || deleting}
+                >
+                  <X className="w-5 h-5 text-gray-700" />
+                </button>
+              </div>
             </div>
 
             <div className="px-5 py-5 space-y-5 overflow-y-auto">
@@ -701,25 +761,13 @@ export default function EscalaPage() {
                     onChange={(e) => setEnviarEmLocal(e.target.value)}
                     className="w-full h-11 border border-gray-200 rounded-lg px-3 bg-white text-gray-900"
                   />
+                </div>
 
-                  {/* ✅ NOVO: info do envio / último envio */}
-                  <div className="mt-2 text-xs text-gray-600">
-                    {selectedItem.status === "ENVIADO" ? (
-                      <span>
-                        ✅ Enviado em:{" "}
-                        {selectedItem.dataEnvio
-                          ? new Date(selectedItem.dataEnvio).toLocaleString("pt-BR")
-                          : "—"}
-                      </span>
-                    ) : (
-                      <span>
-                        ⏳ Último envio:{" "}
-                        {selectedItem.dataEnvio
-                          ? new Date(selectedItem.dataEnvio).toLocaleString("pt-BR")
-                          : "ainda não enviado"}
-                      </span>
-                    )}
-                  </div>
+                {/* ✅ Enviado em */}
+                <div className="text-sm text-gray-700 flex items-center gap-2">
+                  <span>✅</span>
+                  <span className="font-medium">Enviado em:</span>
+                  <span>{formatPtBR(selectedItem.dataEnvio ?? null)}</span>
                 </div>
               </div>
 
@@ -738,10 +786,10 @@ export default function EscalaPage() {
             </div>
 
             <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2 shrink-0">
-              <Button variant="secondary" onClick={closeModal} disabled={saving}>
+              <Button variant="secondary" onClick={closeModal} disabled={saving || deleting}>
                 Cancelar
               </Button>
-              <Button onClick={saveAll} loading={saving}>
+              <Button onClick={saveAll} loading={saving} disabled={deleting}>
                 Salvar
               </Button>
             </div>
