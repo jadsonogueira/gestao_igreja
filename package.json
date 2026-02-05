@@ -2,15 +2,18 @@
   "name": "app",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "prisma generate && next build",
-    "start": "next start -p $PORT",
-    "scheduler": "tsx scripts/scheduler.ts",
-    "start:render": "concurrently -k -n web,scheduler \"next start -p $PORT\" \"tsx scripts/scheduler.ts\"",
-    "lint": "next lint",
-    "scheduler:escala": "tsx scripts/scheduler-escala.ts",
-    "postinstall": "prisma generate"
-  },
+  "dev": "next dev",
+  "build": "prisma generate && next build",
+  "start": "next start -p $PORT",
+
+  "scheduler": "tsx scripts/scheduler.ts",
+  "scheduler:escala": "tsx scripts/scheduler-escala.ts",
+
+  "start:render": "concurrently -k -n web,scheduler,escala \"next start -p $PORT\" \"tsx scripts/scheduler.ts\" \"tsx scripts/scheduler-escala.ts\"",
+
+  "lint": "next lint",
+  "postinstall": "prisma generate"
+}
   "prisma": {
     "seed": "tsx --require dotenv/config scripts/seed.ts"
   },
