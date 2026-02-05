@@ -8,7 +8,6 @@
     "scheduler": "tsx scripts/scheduler.ts",
     "start:render": "concurrently -k -n web,scheduler \"next start -p $PORT\" \"tsx scripts/scheduler.ts\"",
     "lint": "next lint",
-    "start:render": "concurrently -k -n web,schedulerEmails,schedulerEscala \"next start -p $PORT\" \"tsx scripts/scheduler.ts\" \"tsx scripts/scheduler-escala.ts\"",
     "scheduler:escala": "tsx scripts/scheduler-escala.ts",
     "postinstall": "prisma generate"
   },
