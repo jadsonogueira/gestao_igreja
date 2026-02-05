@@ -55,6 +55,28 @@ export async function processEscalaEmail(
       },
     });
 
+    // ✅ registra no histórico (ERRO)
+    await prisma.emailLog
+      .create({
+        data: {
+          // ajuste esses campos se seu model tiver nomes diferentes
+          type: "ESCALA",
+          status: "ERRO",
+          membroId: null,
+          membroNome: escala.membroNome ?? escala.nomeResponsavelRaw ?? "—",
+          subject: `Escala (${escala.tipo}) - falha (sem membro vinculado)`,
+          to: null,
+          errorMessage: "Escala sem vínculo com membro (membroId vazio).",
+          meta: {
+            escalaId: escala.id,
+            escalaTipo: escala.tipo,
+            dataEvento: escala.dataEvento?.toISOString?.() ?? String(escala.dataEvento),
+            manual,
+          },
+        } as any,
+      })
+      .catch(() => null);
+
     return {
       ok: false,
       status: 400,
@@ -75,6 +97,27 @@ export async function processEscalaEmail(
         erroMensagem: "Escala com membroId inválido (membro não encontrado).",
       },
     });
+
+    // ✅ registra no histórico (ERRO)
+    await prisma.emailLog
+      .create({
+        data: {
+          type: "ESCALA",
+          status: "ERRO",
+          membroId: escala.membroId,
+          membroNome: escala.membroNome ?? escala.nomeResponsavelRaw ?? "—",
+          subject: `Escala (${escala.tipo}) - falha (membro não encontrado)`,
+          to: null,
+          errorMessage: "Escala com membroId inválido (membro não encontrado).",
+          meta: {
+            escalaId: escala.id,
+            escalaTipo: escala.tipo,
+            dataEvento: escala.dataEvento?.toISOString?.() ?? String(escala.dataEvento),
+            manual,
+          },
+        } as any,
+      })
+      .catch(() => null);
 
     return { ok: false, status: 404, error: "Membro não encontrado" };
   }
@@ -110,6 +153,7 @@ export async function processEscalaEmail(
       throw new Error(result.message ?? "Falha ao enviar e-mail");
     }
 
+    // ✅ marca como enviado
     await prisma.escala.update({
       where: { id: escala.id },
       data: {
@@ -119,22 +163,70 @@ export async function processEscalaEmail(
       },
     });
 
+    // ✅ registra no histórico (SUCESSO)
+    await prisma.emailLog
+      .create({
+        data: {
+          type: "ESCALA",
+          status: "ENVIADO",
+          membroId: member.id,
+          membroNome: member.nome,
+          subject: `Escala (${escala.tipo}) - ${responsavelNome} - ${dataEventoFmt}`,
+          to: member.email ?? null,
+          errorMessage: null,
+          meta: {
+            escalaId: escala.id,
+            escalaTipo: escala.tipo,
+            dataEvento: escala.dataEvento?.toISOString?.() ?? String(escala.dataEvento),
+            enviarEm: escala.enviarEm?.toISOString?.() ?? String(escala.enviarEm),
+            enviadoEm: now.toISOString(),
+            manual,
+            agendamento: agendamentoDate.toISOString(),
+          },
+        } as any,
+      })
+      .catch(() => null);
+
     return { ok: true, status: 200 };
   } catch (err: any) {
+    const msg = String(err?.message ?? err);
+
     await prisma.escala
       .update({
         where: { id: escala.id },
         data: {
           status: "ERRO",
-          erroMensagem: String(err?.message ?? err),
+          erroMensagem: msg,
         },
+      })
+      .catch(() => null);
+
+    // ✅ registra no histórico (ERRO)
+    await prisma.emailLog
+      .create({
+        data: {
+          type: "ESCALA",
+          status: "ERRO",
+          membroId: member.id,
+          membroNome: member.nome,
+          subject: `Escala (${escala.tipo}) - falha`,
+          to: member.email ?? null,
+          errorMessage: msg,
+          meta: {
+            escalaId: escala.id,
+            escalaTipo: escala.tipo,
+            dataEvento: escala.dataEvento?.toISOString?.() ?? String(escala.dataEvento),
+            enviarEm: escala.enviarEm?.toISOString?.() ?? String(escala.enviarEm),
+            manual,
+          },
+        } as any,
       })
       .catch(() => null);
 
     return {
       ok: false,
       status: 500,
-      error: String(err?.message ?? err),
+      error: msg,
     };
   }
 }
