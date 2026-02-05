@@ -14,6 +14,7 @@ export async function GET() {
 
     if (!integration) {
       return NextResponse.json({
+        ok: true,
         connected: false,
         reason: "not_connected",
         details: "Nenhum token salvo no banco (GoogleIntegration não encontrado).",
@@ -28,6 +29,7 @@ export async function GET() {
 
     if (!hasClientId || !hasClientSecret || !hasRedirect || !hasCalendarId) {
       return NextResponse.json({
+        ok: true,
         connected: false,
         reason: "missing_env",
         details: {
@@ -49,6 +51,7 @@ export async function GET() {
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
       return NextResponse.json({
+        ok: true,
         connected: false,
         reason: "google_api_error",
         details: {
@@ -62,6 +65,7 @@ export async function GET() {
     const cal = await res.json();
 
     return NextResponse.json({
+      ok: true,
       connected: true,
       calendar: {
         id: cal?.id,
@@ -74,10 +78,14 @@ export async function GET() {
       },
     });
   } catch (err: any) {
-    return NextResponse.json({
-      connected: false,
-      reason: "exception",
-      details: String(err?.message ?? err),
-    });
+    return NextResponse.json(
+      {
+        ok: false,
+        connected: false,
+        reason: "exception",
+        details: String(err?.message ?? err),
+      },
+      { status: 500 }
+    );
   }
 }
