@@ -11,6 +11,7 @@ import {
   ToggleLeft,
   ToggleRight,
   Send,
+  Trash2,
 } from "lucide-react";
 
 import Button from "@/components/ui/button";
@@ -158,6 +159,7 @@ export default function EscalaPage() {
   const [mensagem, setMensagem] = useState<string>("");
 
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   // ✅ Enviar agora (loading por item)
   const [sendingNowId, setSendingNowId] = useState<string | null>(null);
@@ -338,7 +340,9 @@ export default function EscalaPage() {
   const openModal = useCallback((it: EscalaItem) => {
     setSelectedItem(it);
 
-    setNomeResponsavelRaw((it.nomeResponsavelRaw ?? it.nomeResponsavel ?? "").toString());
+    setNomeResponsavelRaw(
+      (it.nomeResponsavelRaw ?? it.nomeResponsavel ?? "").toString()
+    );
     setSelectedMemberId((it.membroId ?? "").toString());
     setMemberSearch("");
 
@@ -350,6 +354,8 @@ export default function EscalaPage() {
   }, []);
 
   const closeModal = useCallback(() => {
+    if (saving || deleting) return;
+
     setOpen(false);
     setSelectedItem(null);
 
@@ -362,7 +368,8 @@ export default function EscalaPage() {
     setMensagem("");
 
     setSaving(false);
-  }, []);
+    setDeleting(false);
+  }, [saving, deleting]);
 
   const filteredMembers = useMemo(() => {
     const q = memberSearch.trim().toLowerCase();
@@ -429,6 +436,39 @@ export default function EscalaPage() {
     selectedMemberId,
   ]);
 
+  const deleteSelected = useCallback(async () => {
+    if (!selectedItem) return;
+
+    const ok = window.confirm(
+      "Excluir este item da escala?\n\nIsso remove o item do app. (Não apaga no Google Calendar automaticamente.)"
+    );
+    if (!ok) return;
+
+    try {
+      setDeleting(true);
+
+      const res = await fetch(`/api/escala/${selectedItem.id}`, {
+        method: "DELETE",
+      });
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok || !json?.ok) {
+        toast.error(json?.error ?? "Falha ao excluir");
+        console.error("DELETE error:", json);
+        return;
+      }
+
+      toast.success("Item excluído.");
+      await fetchEscalaOnly();
+      closeModal();
+    } catch (e) {
+      console.error(e);
+      toast.error("Falha ao excluir");
+    } finally {
+      setDeleting(false);
+    }
+  }, [selectedItem, fetchEscalaOnly, closeModal]);
+
   // ✅ ENVIAR AGORA (por item)
   const sendNow = useCallback(
     async (it: EscalaItem) => {
@@ -468,7 +508,8 @@ export default function EscalaPage() {
         <div>
           <h1 className="text-4xl font-bold text-gray-900">Escala</h1>
           <p className="text-gray-600 mt-2">
-            Agenda por data ({days} dias por padrão). Clique em um item para editar.
+            Agenda por data ({days} dias por padrão). Clique em um item para
+            editar.
           </p>
         </div>
 
@@ -498,7 +539,9 @@ export default function EscalaPage() {
           <h2 className="text-xl font-semibold text-gray-900">Próximos dias</h2>
 
           <div className="ml-auto text-sm text-gray-500">
-            {membersLoading ? "Carregando membros..." : `${members.length} membros`}
+            {membersLoading
+              ? "Carregando membros..."
+              : `${members.length} membros`}
           </div>
         </div>
 
@@ -510,7 +553,10 @@ export default function EscalaPage() {
           ) : (
             <div className="space-y-6">
               {grouped.map(([date, list]) => (
-                <div key={date} className="border border-gray-100 rounded-xl p-4">
+                <div
+                  key={date}
+                  className="border border-gray-100 rounded-xl p-4"
+                >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="text-lg font-semibold text-gray-900">
@@ -525,7 +571,9 @@ export default function EscalaPage() {
                       )}
                     </div>
 
-                    <div className="text-sm text-gray-500">{list.length} item(ns)</div>
+                    <div className="text-sm text-gray-500">
+                      {list.length} item(ns)
+                    </div>
                   </div>
 
                   <div className="mt-3 space-y-2">
@@ -539,7 +587,9 @@ export default function EscalaPage() {
                         <div className="font-medium text-gray-900 flex items-center gap-2">
                           <Link2 className="w-4 h-4 text-gray-500" />
                           {tipoLabel[it.tipo] ?? it.tipo}:{" "}
-                          <span className="font-semibold">{it.nomeResponsavel}</span>
+                          <span className="font-semibold">
+                            {it.nomeResponsavel}
+                          </span>
 
                           {!it.membroId && (
                             <span className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800">
@@ -601,25 +651,56 @@ export default function EscalaPage() {
       {/* MODAL */}
       {open && selectedItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/30" onClick={closeModal} />
+          <div
+            className="absolute inset-0 bg-black/30"
+            onClick={closeModal}
+          />
 
           <div className="relative w-[min(780px,92vw)] max-h-[90vh] bg-white rounded-2xl shadow-xl border border-gray-100 flex flex-col">
             <div className="px-5 py-4 border-b border-gray-100 flex items-start justify-between gap-4 shrink-0">
               <div>
-                <div className="text-lg font-semibold text-gray-900">Editar escala</div>
+                <div className="text-lg font-semibold text-gray-900">
+                  Editar escala
+                </div>
                 <div className="text-sm text-gray-600 mt-1">
                   {tipoLabel[selectedItem.tipo] ?? selectedItem.tipo} —{" "}
                   {new Date(selectedItem.dataEvento).toLocaleDateString("pt-BR")}
                 </div>
               </div>
 
-              <button
-                onClick={closeModal}
-                className="p-2 rounded-lg hover:bg-gray-100"
-                aria-label="Fechar"
-              >
-                <X className="w-5 h-5 text-gray-700" />
-              </button>
+              <div className="flex items-center gap-2">
+                {/* ✅ EXCLUIR */}
+                <button
+                  onClick={deleteSelected}
+                  disabled={saving || deleting}
+                  className={cn(
+                    "p-2 rounded-lg border transition",
+                    saving || deleting
+                      ? "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed"
+                      : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+                  )}
+                  title="Excluir este item"
+                  aria-label="Excluir"
+                >
+                  <Trash2 className="w-5 h-5" />
+                </button>
+
+                {/* FECHAR */}
+                <button
+                  onClick={closeModal}
+                  disabled={saving || deleting}
+                  className={cn(
+                    "p-2 rounded-lg transition",
+                    saving || deleting
+                      ? "opacity-50 cursor-not-allowed"
+                      : "hover:bg-gray-100"
+                  )}
+                  aria-label="Fechar"
+                  title="Fechar"
+                >
+                  <X className="w-5 h-5 text-gray-700" />
+                </button>
+              </div>
             </div>
 
             <div className="px-5 py-5 space-y-5 overflow-y-auto">
@@ -663,8 +744,8 @@ export default function EscalaPage() {
 
                 {!selectedMemberId && (
                   <p className="text-xs font-semibold text-yellow-800 mt-2">
-                    ⚠️ Este item está <span className="underline">não vinculado</span> a um
-                    membro.
+                    ⚠️ Este item está{" "}
+                    <span className="underline">não vinculado</span> a um membro.
                   </p>
                 )}
               </div>
@@ -692,7 +773,9 @@ export default function EscalaPage() {
                       <ToggleLeft className="w-5 h-5 text-gray-600" />
                     )}
                     <span className="text-sm font-medium text-gray-800">
-                      {envioAutomatico ? "Envio automático: ON" : "Envio automático: OFF"}
+                      {envioAutomatico
+                        ? "Envio automático: ON"
+                        : "Envio automático: OFF"}
                     </span>
                   </button>
                 </div>
@@ -725,10 +808,10 @@ export default function EscalaPage() {
             </div>
 
             <div className="px-5 py-4 border-t border-gray-100 flex items-center justify-end gap-2 shrink-0">
-              <Button variant="secondary" onClick={closeModal} disabled={saving}>
+              <Button variant="secondary" onClick={closeModal} disabled={saving || deleting}>
                 Cancelar
               </Button>
-              <Button onClick={saveAll} loading={saving}>
+              <Button onClick={saveAll} loading={saving} disabled={deleting}>
                 Salvar
               </Button>
             </div>
