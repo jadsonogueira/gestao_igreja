@@ -59,19 +59,40 @@ export async function GET(request: Request) {
         dataEvento: { gte: timeMin, lt: timeMax },
       },
       orderBy: [{ dataEvento: "asc" }, { tipo: "asc" }],
+      // ✅ opcional: select explícito (mais seguro/perf)
+      select: {
+        id: true,
+        tipo: true,
+        dataEvento: true,
+
+        mensagem: true,
+
+        membroId: true,
+        membroNome: true,
+        nomeResponsavelRaw: true,
+        nomeResponsavel: true,
+
+        envioAutomatico: true,
+        enviarEm: true,
+
+        status: true,
+        erroMensagem: true,
+        horario: true,
+
+        // ✅ NOVO: data do envio (para mostrar no modal)
+        dataEnvio: true,
+      },
     });
 
     const items = (rows as any[]).map((r) => {
       const dataEventoISO = toISODate(r.dataEvento) ?? new Date().toISOString();
 
-      // ✅ defaults coerentes para o front
       const envioAutomatico =
         typeof r.envioAutomatico === "boolean" ? r.envioAutomatico : true;
 
-      // se não existir enviarEm ainda, usa dataEvento como fallback
-      const enviarEmISO = toISODate(r.enviarEm) ?? dataEventoISO;
+      // ✅ Não inventa enviarEm se não existir
+      const enviarEmISO = toISODate(r.enviarEm); // pode ser null
 
-      // ✅ nome final (o que aparece no card)
       const nomeResponsavel =
         r.membroNome ??
         r.nomeResponsavelRaw ??
@@ -83,23 +104,22 @@ export async function GET(request: Request) {
         tipo: r.tipo,
         dataEvento: dataEventoISO,
 
-        // ✅ o front usa isso para exibir
         nomeResponsavel,
         mensagem: r.mensagem ?? null,
 
-        // ✅ o front precisa disso para marcar "vinculado"
         membroId: r.membroId ?? null,
         membroNome: r.membroNome ?? null,
         nomeResponsavelRaw: r.nomeResponsavelRaw ?? null,
 
-        // ✅ etapa 3 (programação)
         envioAutomatico,
         enviarEm: enviarEmISO,
 
-        // extras úteis
         status: r.status ?? null,
         erroMensagem: r.erroMensagem ?? null,
         horario: r.horario ?? null,
+
+        // ✅ NOVO
+        dataEnvio: toISODate(r.dataEnvio),
       };
     });
 
