@@ -136,7 +136,62 @@ export async function PATCH(
   } catch (e: any) {
     console.error("PATCH /api/escala/[id] error:", e);
     return NextResponse.json(
-      { ok: false, error: "Falha ao atualizar escala", details: String(e?.message ?? e) },
+      {
+        ok: false,
+        error: "Falha ao atualizar escala",
+        details: String(e?.message ?? e),
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  _request: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const id = params.id;
+
+    if (!id) {
+      return NextResponse.json(
+        { ok: false, error: "ID inválido" },
+        { status: 400 }
+      );
+    }
+
+    // Opcional (recomendado): não excluir se já foi enviado
+    const existing = await prisma.escala.findUnique({
+      where: { id },
+      select: { id: true, status: true, dataEnvio: true },
+    });
+
+    if (!existing) {
+      return NextResponse.json(
+        { ok: false, error: "Escala não encontrada" },
+        { status: 404 }
+      );
+    }
+
+    // Se você quiser permitir excluir mesmo enviado, é só remover este bloco.
+    if (existing.status === "ENVIADO" || existing.dataEnvio) {
+      return NextResponse.json(
+        { ok: false, error: "Este item já foi enviado e não pode ser excluído." },
+        { status: 400 }
+      );
+    }
+
+    await prisma.escala.delete({ where: { id } });
+
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    console.error("DELETE /api/escala/[id] error:", e);
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Falha ao excluir escala",
+        details: String(e?.message ?? e),
+      },
       { status: 500 }
     );
   }
