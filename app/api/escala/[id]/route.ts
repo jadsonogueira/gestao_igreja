@@ -11,7 +11,7 @@ type PatchBody = {
   nomeResponsavelRaw?: string | null;
 
   membroId?: string | null; // ObjectId string
-  membroNome?: string | null; // opcional (se quiser mandar já resolvido)
+  membroNome?: string | null; // opcional
 };
 
 function isValidISODate(s: string) {
@@ -27,35 +27,26 @@ export async function PATCH(
     const id = params.id;
 
     if (!id) {
-      return NextResponse.json(
-        { ok: false, error: "ID inválido" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "ID inválido" }, { status: 400 });
     }
 
     const body = (await request.json().catch(() => ({}))) as PatchBody;
 
     const data: any = {};
 
-    // mensagem
     if ("mensagem" in body) {
       const msg = body.mensagem;
       data.mensagem = msg === null ? null : String(msg ?? "").trim() || null;
     }
 
-    // envioAutomatico
     if ("envioAutomatico" in body) {
       data.envioAutomatico = Boolean(body.envioAutomatico);
     }
 
-    // enviarEm
     if ("enviarEm" in body) {
       const v = body.enviarEm;
       if (v === null || v === undefined || v === "") {
-        return NextResponse.json(
-          { ok: false, error: "enviarEm é obrigatório" },
-          { status: 400 }
-        );
+        return NextResponse.json({ ok: false, error: "enviarEm é obrigatório" }, { status: 400 });
       }
       if (!isValidISODate(v)) {
         return NextResponse.json(
@@ -66,48 +57,35 @@ export async function PATCH(
       data.enviarEm = new Date(v);
     }
 
-    // nomeResponsavelRaw (texto cru)
     if ("nomeResponsavelRaw" in body) {
       const v = body.nomeResponsavelRaw;
-      data.nomeResponsavelRaw =
-        v === null ? null : String(v ?? "").trim() || null;
-
-      // se você setou nomeResponsavelRaw manualmente, marca source como MANUAL
+      data.nomeResponsavelRaw = v === null ? null : String(v ?? "").trim() || null;
       data.source = "MANUAL";
     }
 
-    // membroId / membroNome
     if ("membroId" in body) {
       const mid = body.membroId;
       if (!mid) {
         data.membroId = null;
         data.membroNome = null;
       } else {
-        // valida se existe
         const member = await prisma.member.findUnique({
           where: { id: mid },
           select: { id: true, nome: true },
         });
 
         if (!member) {
-          return NextResponse.json(
-            { ok: false, error: "Member não encontrado" },
-            { status: 404 }
-          );
+          return NextResponse.json({ ok: false, error: "Member não encontrado" }, { status: 404 });
         }
 
         data.membroId = member.id;
         data.membroNome = member.nome;
-        // se você vinculou manualmente, também marca como MANUAL
         data.source = "MANUAL";
       }
     }
 
     if (Object.keys(data).length === 0) {
-      return NextResponse.json(
-        { ok: false, error: "Nenhum campo para atualizar" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "Nenhum campo para atualizar" }, { status: 400 });
     }
 
     const updated = await prisma.escala.update({
@@ -129,6 +107,7 @@ export async function PATCH(
         source: true,
         lastSyncedAt: true,
         updatedAt: true,
+        dataEnvio: true,
       },
     });
 
@@ -136,11 +115,7 @@ export async function PATCH(
   } catch (e: any) {
     console.error("PATCH /api/escala/[id] error:", e);
     return NextResponse.json(
-      {
-        ok: false,
-        error: "Falha ao atualizar escala",
-        details: String(e?.message ?? e),
-      },
+      { ok: false, error: "Falha ao atualizar escala", details: String(e?.message ?? e) },
       { status: 500 }
     );
   }
@@ -154,31 +129,17 @@ export async function DELETE(
     const id = params.id;
 
     if (!id) {
-      return NextResponse.json(
-        { ok: false, error: "ID inválido" },
-        { status: 400 }
-      );
+      return NextResponse.json({ ok: false, error: "ID inválido" }, { status: 400 });
     }
 
-    // Opcional (recomendado): não excluir se já foi enviado
-    const existing = await prisma.escala.findUnique({
+    // opcional: checar se existe antes
+    const exists = await prisma.escala.findUnique({
       where: { id },
-      select: { id: true, status: true, dataEnvio: true },
+      select: { id: true },
     });
 
-    if (!existing) {
-      return NextResponse.json(
-        { ok: false, error: "Escala não encontrada" },
-        { status: 404 }
-      );
-    }
-
-    // Se você quiser permitir excluir mesmo enviado, é só remover este bloco.
-    if (existing.status === "ENVIADO" || existing.dataEnvio) {
-      return NextResponse.json(
-        { ok: false, error: "Este item já foi enviado e não pode ser excluído." },
-        { status: 400 }
-      );
+    if (!exists) {
+      return NextResponse.json({ ok: false, error: "Escala não encontrada" }, { status: 404 });
     }
 
     await prisma.escala.delete({ where: { id } });
@@ -187,11 +148,7 @@ export async function DELETE(
   } catch (e: any) {
     console.error("DELETE /api/escala/[id] error:", e);
     return NextResponse.json(
-      {
-        ok: false,
-        error: "Falha ao excluir escala",
-        details: String(e?.message ?? e),
-      },
+      { ok: false, error: "Falha ao excluir escala", details: String(e?.message ?? e) },
       { status: 500 }
     );
   }
