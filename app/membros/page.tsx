@@ -6,7 +6,6 @@ import toast from 'react-hot-toast';
 import {
   Search,
   UserPlus,
-  Edit,
   Trash2,
   Filter,
   Mail,
@@ -353,7 +352,13 @@ export default function MembrosPage() {
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
                 transition={{ delay: index * 0.05 }}
-                className="bg-white rounded-xl p-5 shadow-md hover:shadow-lg transition-shadow"
+                className="bg-white rounded-xl p-5 shadow-md hover:shadow-lg transition-shadow cursor-pointer"
+                onClick={() => openEditModal(member)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') openEditModal(member);
+                }}
               >
                 <div className="flex justify-between items-start mb-3">
                   <div>
@@ -368,13 +373,13 @@ export default function MembrosPage() {
                     </span>
                   </div>
 
-                  {/* ✅ AÇÕES (dentro da área de edição do membro) */}
                   <div className="flex gap-1">
                     {member?.telefone && whatsappUrl && (
                       <a
                         href={whatsappUrl}
                         target="_blank"
                         rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
                         className="p-2 rounded-lg hover:bg-emerald-50 text-emerald-700 transition-colors"
                         aria-label="WhatsApp"
                         title="WhatsApp"
@@ -386,6 +391,7 @@ export default function MembrosPage() {
                     {member?.telefone && smsUrl && (
                       <a
                         href={smsUrl}
+                        onClick={(e) => e.stopPropagation()}
                         className="p-2 rounded-lg hover:bg-sky-50 text-sky-700 transition-colors"
                         aria-label="SMS"
                         title="SMS"
@@ -397,6 +403,7 @@ export default function MembrosPage() {
                     {member?.telefone && telUrl && (
                       <a
                         href={telUrl}
+                        onClick={(e) => e.stopPropagation()}
                         className="p-2 rounded-lg hover:bg-violet-50 text-violet-700 transition-colors"
                         aria-label="Ligar"
                         title="Ligar"
@@ -406,16 +413,10 @@ export default function MembrosPage() {
                     )}
 
                     <button
-                      onClick={() => openEditModal(member)}
-                      className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors"
-                      aria-label="Editar"
-                      title="Editar"
-                    >
-                      <Edit className="w-4 h-4" />
-                    </button>
-
-                    <button
-                      onClick={() => openDeleteModal(member)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openDeleteModal(member);
+                      }}
                       className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors"
                       aria-label="Excluir"
                       title="Excluir"
