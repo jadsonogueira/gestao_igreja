@@ -14,6 +14,7 @@ import {
   MapPin,
   Calendar,
   Users,
+  MessageCircle,
 } from 'lucide-react';
 import Button from '@/components/ui/button';
 import Input from '@/components/ui/input';
@@ -98,6 +99,14 @@ function formatPhoneDisplay(phone?: string) {
 
   // fallback: mostra como está
   return raw;
+}
+
+// ✅ Link do WhatsApp (só dígitos)
+function getWhatsAppUrl(phone?: string) {
+  if (!phone) return null;
+  const digits = String(phone).replace(/\D/g, '');
+  if (!digits) return null;
+  return `https://wa.me/${digits}`;
 }
 
 export default function MembrosPage() {
@@ -312,87 +321,106 @@ export default function MembrosPage() {
         className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
       >
         <AnimatePresence mode="popLayout">
-          {(members ?? [])?.map((member, index) => (
-            <motion.div
-              key={member?._id ?? index}
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              transition={{ delay: index * 0.05 }}
-              className="bg-white rounded-xl p-5 shadow-md hover:shadow-lg transition-shadow"
-            >
-              <div className="flex justify-between items-start mb-3">
-                <div>
-                  <h3 className="font-semibold text-gray-900">{member?.nome ?? 'Membro'}</h3>
-                  <span
-                    className={cn(
-                      'text-xs px-2 py-0.5 rounded-full',
-                      member?.ativo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+          {(members ?? [])?.map((member, index) => {
+            const whatsappUrl = getWhatsAppUrl(member?.telefone);
+
+            return (
+              <motion.div
+                key={member?._id ?? index}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                transition={{ delay: index * 0.05 }}
+                className="bg-white rounded-xl p-5 shadow-md hover:shadow-lg transition-shadow"
+              >
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <h3 className="font-semibold text-gray-900">{member?.nome ?? 'Membro'}</h3>
+                    <span
+                      className={cn(
+                        'text-xs px-2 py-0.5 rounded-full',
+                        member?.ativo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                      )}
+                    >
+                      {member?.ativo ? 'Ativo' : 'Inativo'}
+                    </span>
+                  </div>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => openEditModal(member)}
+                      className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors"
+                      aria-label="Editar"
+                    >
+                      <Edit className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => openDeleteModal(member)}
+                      className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors"
+                      aria-label="Excluir"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2 text-sm text-gray-600">
+                  <div className="flex items-center gap-2">
+                    <Mail className="w-4 h-4 text-gray-400" />
+                    <span className="truncate">{member?.email ?? '-'}</span>
+                  </div>
+
+                  {member?.telefone && (
+                    <div className="flex items-start gap-2">
+                      <Phone className="w-4 h-4 text-gray-400 mt-0.5" />
+                      <div className="flex flex-col gap-2">
+                        <span>{formatPhoneDisplay(member.telefone)}</span>
+
+                        {whatsappUrl && (
+                          <a
+                            href={whatsappUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 text-sm text-emerald-700 hover:text-emerald-800"
+                            aria-label="Abrir WhatsApp"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                            WhatsApp
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {member?.data_nascimento && (
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-gray-400" />
+                      <span>{formatDate(member.data_nascimento)}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <div className="flex flex-wrap gap-1">
+                    {member?.grupos?.pastoral && (
+                      <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-full">Pastoral</span>
                     )}
-                  >
-                    {member?.ativo ? 'Ativo' : 'Inativo'}
-                  </span>
-                </div>
-                <div className="flex gap-1">
-                  <button
-                    onClick={() => openEditModal(member)}
-                    className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors"
-                    aria-label="Editar"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => openDeleteModal(member)}
-                    className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors"
-                    aria-label="Excluir"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-2 text-sm text-gray-600">
-                <div className="flex items-center gap-2">
-                  <Mail className="w-4 h-4 text-gray-400" />
-                  <span className="truncate">{member?.email ?? '-'}</span>
-                </div>
-
-                {member?.telefone && (
-                  <div className="flex items-center gap-2">
-                    <Phone className="w-4 h-4 text-gray-400" />
-                    <span>{formatPhoneDisplay(member.telefone)}</span>
+                    {member?.grupos?.devocional && (
+                      <span className="text-xs px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full">Devocional</span>
+                    )}
+                    {member?.grupos?.visitantes && (
+                      <span className="text-xs px-2 py-1 bg-amber-100 text-amber-700 rounded-full">Visitante</span>
+                    )}
+                    {member?.grupos?.convite && (
+                      <span className="text-xs px-2 py-1 bg-indigo-100 text-indigo-700 rounded-full">Convite</span>
+                    )}
+                    {member?.grupos?.membros_sumidos && (
+                      <span className="text-xs px-2 py-1 bg-rose-100 text-rose-700 rounded-full">Sumido</span>
+                    )}
                   </div>
-                )}
-
-                {member?.data_nascimento && (
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4 text-gray-400" />
-                    <span>{formatDate(member.data_nascimento)}</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-3 pt-3 border-t border-gray-100">
-                <div className="flex flex-wrap gap-1">
-                  {member?.grupos?.pastoral && (
-                    <span className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-full">Pastoral</span>
-                  )}
-                  {member?.grupos?.devocional && (
-                    <span className="text-xs px-2 py-1 bg-emerald-100 text-emerald-700 rounded-full">Devocional</span>
-                  )}
-                  {member?.grupos?.visitantes && (
-                    <span className="text-xs px-2 py-1 bg-amber-100 text-amber-700 rounded-full">Visitante</span>
-                  )}
-                  {member?.grupos?.convite && (
-                    <span className="text-xs px-2 py-1 bg-indigo-100 text-indigo-700 rounded-full">Convite</span>
-                  )}
-                  {member?.grupos?.membros_sumidos && (
-                    <span className="text-xs px-2 py-1 bg-rose-100 text-rose-700 rounded-full">Sumido</span>
-                  )}
                 </div>
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            );
+          })}
         </AnimatePresence>
       </motion.div>
 
