@@ -95,7 +95,13 @@ export async function processEscalaEmail(
 
   const agendamentoDate = sendAt ?? escala.enviarEm ?? now;
 
+  // ✅ Grupo do histórico (você pode filtrar depois no menu Histórico)
   const grupoHistorico = `ESCALA_${String(escala.tipo)}${manual ? "_MANUAL" : ""}`;
+
+  // ✅ conteúdo padrão pra guardar no histórico
+  const mensagemHistorico =
+    escala.mensagem?.trim() ||
+    `Escala ${String(escala.tipo)} - ${responsavelNome} - ${dataEventoFmt}`;
 
   try {
     const result = await sendScaleTriggerEmail({
@@ -122,27 +128,29 @@ export async function processEscalaEmail(
       },
     });
 
-    // ✅ HISTÓRICO (EmailLog)
-    await prisma.emailLog.create({
-      data: {
-        grupo: grupoHistorico,
-        membroId: member.id,
-        membroNome: member.nome,
-        membroEmail: member.email ?? null,
+    // ✅ HISTÓRICO (EmailLog) — NÃO PODE derrubar a request se falhar
+    try {
+      await prisma.emailLog.create({
+        data: {
+          grupo: grupoHistorico,
+          membroId: member.id,
+          membroNome: member.nome,
+          membroEmail: member.email ?? null,
 
-        // seu model usa default("pendente"), mas aqui já foi enviado
-        status: "enviado",
+          // ✅ manter padronizado com o resto do app
+          status: "enviado",
 
-        dataAgendamento: agendamentoDate,
-        dataEnvio: now,
+          dataAgendamento: agendamentoDate,
+          dataEnvio: now,
 
-        mensagemEnviada:
-          escala.mensagem?.trim() ||
-          `Escala ${String(escala.tipo)} - ${responsavelNome} - ${dataEventoFmt}`,
-
-        erroMensagem: null,
-      },
-    });
+          mensagemEnviada: mensagemHistorico,
+          erroMensagem: null,
+        },
+      });
+    } catch (e) {
+      console.error("[Escala][EmailLog] Falha ao gravar histórico (enviado):", e);
+      // não derruba
+    }
 
     return { ok: true, status: 200 };
   } catch (err: any) {
@@ -158,9 +166,9 @@ export async function processEscalaEmail(
       })
       .catch(() => null);
 
-    // ✅ HISTÓRICO (EmailLog) - ERRO
-    await prisma.emailLog
-      .create({
+    // ✅ HISTÓRICO (EmailLog) - ERRO — também não pode derrubar
+    try {
+      await prisma.emailLog.create({
         data: {
           grupo: grupoHistorico,
           membroId: member.id,
@@ -172,14 +180,14 @@ export async function processEscalaEmail(
           dataAgendamento: agendamentoDate,
           dataEnvio: null,
 
-          mensagemEnviada:
-            escala.mensagem?.trim() ||
-            `Escala ${String(escala.tipo)} - ${responsavelNome} - ${dataEventoFmt}`,
-
+          mensagemEnviada: mensagemHistorico,
           erroMensagem: msg,
         },
-      })
-      .catch(() => null);
+      });
+    } catch (e) {
+      console.error("[Escala][EmailLog] Falha ao gravar histórico (erro):", e);
+      // não derruba
+    }
 
     return {
       ok: false,
