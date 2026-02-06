@@ -6,7 +6,6 @@ import toast from 'react-hot-toast';
 import {
   Search,
   UserPlus,
-  Trash2,
   Filter,
   Mail,
   Phone,
@@ -16,6 +15,7 @@ import {
   MessageCircle,
   MessageSquareText,
   PhoneCall,
+  Trash2,
 } from 'lucide-react';
 import Button from '@/components/ui/button';
 import Input from '@/components/ui/input';
@@ -373,6 +373,7 @@ export default function MembrosPage() {
                     </span>
                   </div>
 
+                  {/* ✅ SÓ OS 3 ÍCONES (WhatsApp, SMS, Ligar) */}
                   <div className="flex gap-1">
                     {member?.telefone && whatsappUrl && (
                       <a
@@ -411,18 +412,6 @@ export default function MembrosPage() {
                         <PhoneCall className="w-4 h-4" />
                       </a>
                     )}
-
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openDeleteModal(member);
-                      }}
-                      className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors"
-                      aria-label="Excluir"
-                      title="Excluir"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
                   </div>
                 </div>
 
@@ -479,6 +468,7 @@ export default function MembrosPage() {
         </div>
       )}
 
+      {/* ✅ MODAL DE EDIÇÃO AGORA COM BOTÃO DE EXCLUIR */}
       <Modal
         isOpen={modalOpen}
         onClose={() => setModalOpen(false)}
@@ -592,13 +582,27 @@ export default function MembrosPage() {
             onChange={(checked) => setFormData({ ...formData, ativo: checked })}
           />
 
-          <div className="flex justify-end gap-3 pt-4">
-            <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancelar
-            </Button>
-            <Button type="submit" loading={saving}>
-              {editingMember ? 'Salvar' : 'Cadastrar'}
-            </Button>
+          <div className="flex justify-between gap-3 pt-4">
+            {/* Botão Excluir só aparece ao editar */}
+            {editingMember && (
+              <Button
+                type="button"
+                variant="danger"
+                onClick={() => openDeleteModal(editingMember)}
+              >
+                <Trash2 className="w-4 h-4" />
+                Excluir
+              </Button>
+            )}
+
+            <div className="flex justify-end gap-3 ml-auto">
+              <Button type="button" variant="secondary" onClick={() => setModalOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" loading={saving}>
+                {editingMember ? 'Salvar' : 'Cadastrar'}
+              </Button>
+            </div>
           </div>
         </form>
       </Modal>
