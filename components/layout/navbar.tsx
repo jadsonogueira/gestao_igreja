@@ -50,7 +50,7 @@ export default function Navbar() {
                 />
               </div>
 
-              <span className="text-xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent hidden sm:block">
+              <span className="text-xl font-bold bg-gradient-to-r from-blue-300 to-indigo-300 bg-clip-text text-transparent hidden sm:block">
                 Igreja de Deus
               </span>
             </Link>
