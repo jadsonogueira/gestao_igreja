@@ -146,7 +146,7 @@ export async function sendTriggerEmail(
         <hr/>
         <p><strong>Mensagem:</strong></p>
         <pre style="white-space:pre-wrap; font-family: Arial, sans-serif;">${mensagem ?? ""}</pre>
-        ${flyerUrl ? '<p><em>📎 Panfleto anexado a este email</em></p>' : ""}
+        ${flyerUrl ? '<p><em></em></p>' : ""}
       </div>
     `;
 
