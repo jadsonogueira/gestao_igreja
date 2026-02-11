@@ -19,37 +19,17 @@ function getTodayMonthDayInTimeZone(date: Date) {
   return { month, day };
 }
 
+// ✅ NASCIMENTO em UTC (evita o "andar 1 dia")
 function getBirthMonthDayUTC(dateInput: Date | string | null | undefined) {
   if (!dateInput) return null;
 
   const d = typeof dateInput === "string" ? new Date(dateInput) : new Date(dateInput);
-
   if (Number.isNaN(d.getTime())) return null;
 
   return {
     month: d.getUTCMonth() + 1,
     day: d.getUTCDate(),
   };
-}
-
-// ✅ NASCIMENTO em Toronto (pra bater com o "hoje" em Toronto)
-function getBirthMonthDayInTimeZone(dateInput: Date | string | null | undefined) {
-  if (!dateInput) return null;
-
-  const d = typeof dateInput === "string" ? new Date(dateInput) : new Date(dateInput);
-  if (Number.isNaN(d.getTime())) return null;
-
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: APP_TIMEZONE,
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(d);
-
-  const month = Number(parts.find((p) => p.type === "month")?.value ?? "0");
-  const day = Number(parts.find((p) => p.type === "day")?.value ?? "0");
-
-  if (!month || !day) return null;
-  return { month, day };
 }
 
 // ✅ calcula próxima ocorrência do aniversário (ano atual ou próximo)
@@ -114,7 +94,6 @@ export async function GET() {
         prisma.emailLog.count({ where: { status: "pendente" } }),
       ]);
 
-    // ✅ AQUI: adiciona "convite"
     const [pastoral, devocional, visitantes, sumidos, convite] = await Promise.all([
       prisma.member.count({ where: { grupoPastoral: true, ativo: true } }),
       prisma.member.count({ where: { grupoDevocional: true, ativo: true } }),
@@ -129,18 +108,21 @@ export async function GET() {
     })) as MemberBirth[];
 
     // ✅ HOJE em Toronto
-    const { month: currentMonth, day: currentDay } = getTodayMonthDayInTimeZone(new Date());
+    const { month: currentMonth, day: currentDay } = getTodayMonthDayInTimeZone(
+      new Date()
+    );
 
+    // ✅ NASCIMENTO em UTC (corrige o "dia 11 só aparece como 12")
     const aniversariantesHoje = membersWithBirth.reduce((acc, m) => {
-      const md = getBirthMonthDayInTimeZone(m.dataNascimento ?? null);
+      const md = getBirthMonthDayUTC(m.dataNascimento ?? null);
       if (!md) return acc;
       return md.month === currentMonth && md.day === currentDay ? acc + 1 : acc;
     }, 0);
 
-    // ✅ Próximos aniversários (lista)
+    // ✅ Próximos aniversários (lista) — também usando UTC
     const proximosAniversariantes = membersWithBirth
       .map((m) => {
-        const md = getBirthMonthDayInTimeZone(m.dataNascimento);
+        const md = getBirthMonthDayUTC(m.dataNascimento);
         if (!md) return null;
 
         const next = nextBirthdayDate(md.month, md.day);
@@ -182,7 +164,6 @@ export async function GET() {
         case "membros_sumidos":
           memberCount = sumidos;
           break;
-        // ✅ AQUI: trata "convite"
         case "convite":
           memberCount = convite;
           break;
@@ -219,7 +200,7 @@ export async function GET() {
           devocional,
           visitantes,
           membros_sumidos: sumidos,
-          convite, // ✅ AQUI: aparece no card
+          convite,
         },
         groups: groupsWithCounts,
         proximosAniversariantes,
