@@ -1,7 +1,6 @@
-param(
+﻿param(
   [string]$AppDir = "C:\apps\gestao-igreja",
-  [string]$Pm2Name = "gestao-igreja",
-  [int]$Port = 3001
+  [string]$Pm2Name = "gestao-igreja"
 )
 
 Set-Location $AppDir
@@ -13,11 +12,17 @@ git reset --hard origin/main
 Write-Host "==> Install deps"
 npm install --legacy-peer-deps
 
+Write-Host "==> Prisma generate"
+npx prisma generate
+
 Write-Host "==> Build"
 npm run build
 
-Write-Host "==> Restart PM2"
-pm2 restart $Pm2Name --update-env
+Write-Host "==> Start/Reload via PM2 ecosystem"
+pm2 startOrReload ecosystem.config.cjs --update-env
+
+Write-Host "==> Save PM2 process list"
+pm2 save
 
 Write-Host "==> Done"
 pm2 ls
