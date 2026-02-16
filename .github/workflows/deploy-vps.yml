@@ -21,11 +21,10 @@ jobs:
           script_stop: true
           command_timeout: 60m
           script: |
-            powershell -NoProfile -Command "
-              Write-Output '=== POWERSHELL TEST ==='
-              hostname
-              whoami
-              Get-Location
-              Get-ChildItem C:\apps\gestao-igreja
+            powershell -NoProfile -ExecutionPolicy Bypass -Command "
+              Write-Output '=== FORCED PATH TEST ==='
+              Set-Location 'C:\apps\gestao-igreja'
+              Write-Output (Get-Location)
+              Get-ChildItem
               Write-Output '=== END TEST ==='
             "
