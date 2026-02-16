@@ -17,5 +17,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           debug: true
           script: |
+            echo "=== START DEPLOY ==="
             cd C:\apps\gestao-igreja
-            powershell -ExecutionPolicy Bypass -Command "& 'C:\apps\gestao-igreja\deploy.ps1'"
+            powershell -NoProfile -ExecutionPolicy Bypass -Command "& 'C:\apps\gestao-igreja\deploy.ps1'; exit $LASTEXITCODE"
+            echo "=== END DEPLOY ==="
