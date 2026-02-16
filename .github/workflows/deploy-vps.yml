@@ -23,6 +23,8 @@ jobs:
           command_timeout: 60m
           script: |
             powershell -NoProfile -ExecutionPolicy Bypass -Command "& {
+              $ErrorActionPreference = 'Stop'
+
               Write-Output '=== START DEPLOY ==='
               Set-Location 'C:\apps\gestao-igreja'
 
