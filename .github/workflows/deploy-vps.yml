@@ -21,7 +21,9 @@ jobs:
           script_stop: true
           command_timeout: 60m
           script: |
-            echo "=== START DEPLOY ==="
-            cd /d C:\apps\gestao-igreja
-            powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1
-            echo "=== END DEPLOY ==="
+  echo "=== WHOAMI TEST ==="
+  hostname
+  whoami
+  cd /d C:\apps\gestao-igreja
+  dir
+  echo "=== END TEST ==="
