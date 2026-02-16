@@ -22,30 +22,31 @@ jobs:
           script_stop: false
           command_timeout: 60m
           script: |
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "& {
-    $ErrorActionPreference = 'Stop'
-    function Run($label, [scriptblock]$cmd) {
-      Write-Output \"==> $label\"
-      & $cmd
-      if ($LASTEXITCODE -ne 0) { throw \"$label failed (exit $LASTEXITCODE)\" }
-    }
+            powershell -NoProfile -ExecutionPolicy Bypass -Command "& {
+              $ErrorActionPreference = 'Stop'
 
-    try {
-      Write-Output '=== START DEPLOY ==='
-      Set-Location 'C:\apps\gestao-igreja'
+              function Run($label, [scriptblock]$cmd) {
+                Write-Output ('==> ' + $label)
+                & $cmd
+                if ($LASTEXITCODE -ne 0) { throw ($label + ' failed (exit ' + $LASTEXITCODE + ')') }
+              }
 
-      Run 'Pull latest' { git fetch origin; git reset --hard origin/main; git clean -fd }
-      Run 'Install deps' { npm install --legacy-peer-deps }
-      Run 'Prisma generate' { npx prisma generate }
-      Run 'Build' { npm run build }
-      Run 'Restart PM2' { pm2 startOrReload ecosystem.config.cjs --update-env; pm2 save; pm2 ls }
+              try {
+                Write-Output '=== START DEPLOY ==='
+                Set-Location 'C:\apps\gestao-igreja'
 
-      Write-Output '=== DEPLOY END ==='
-      exit 0
-    }
-    catch {
-      Write-Output '=== DEPLOY FAILED ==='
-      Write-Output $_.Exception.Message
-      exit 1
-    }
-  }"
+                Run 'Pull latest' { git fetch origin; git reset --hard origin/main; git clean -fd }
+                Run 'Install deps' { npm install --legacy-peer-deps }
+                Run 'Prisma generate' { npx prisma generate }
+                Run 'Build' { npm run build }
+                Run 'Restart PM2' { pm2 startOrReload ecosystem.config.cjs --update-env; pm2 save; pm2 ls }
+
+                Write-Output '=== DEPLOY END ==='
+                exit 0
+              }
+              catch {
+                Write-Output '=== DEPLOY FAILED ==='
+                Write-Output $_.Exception.Message
+                exit 1
+              }
+            }"
