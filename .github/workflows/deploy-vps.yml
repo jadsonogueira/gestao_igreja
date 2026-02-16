@@ -17,4 +17,4 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             cd C:\apps\gestao-igreja
-            powershell -ExecutionPolicy Bypass -File deploy.ps1
+            powershell -ExecutionPolicy Bypass -Command "& 'C:\apps\gestao-igreja\deploy.ps1'"
