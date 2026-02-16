@@ -19,5 +19,5 @@ jobs:
           script: |
             echo "=== START DEPLOY ==="
             cd C:\apps\gestao-igreja
-            powershell -NoProfile -ExecutionPolicy Bypass -Command "C:\apps\gestao-igreja\deploy.ps1 | Out-String"
+            powershell -NoProfile -ExecutionPolicy Bypass -Command "& { & 'C:\apps\gestao-igreja\deploy.ps1' 2>&1 | Out-String -Width 5000 }"
             echo "=== END DEPLOY ==="
