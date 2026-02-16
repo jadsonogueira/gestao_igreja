@@ -5,9 +5,10 @@
 
 Set-Location $AppDir
 
-Write-Host "==> Pull latest"
-git fetch --all
+Write-Host "==> Pull latest (hard sync with origin/main)"
+git fetch origin
 git reset --hard origin/main
+git clean -fd
 
 Write-Host "==> Install deps"
 npm install --legacy-peer-deps
