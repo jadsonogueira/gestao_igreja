@@ -17,13 +17,15 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
           debug: true
-          request_pty: false
+          request_pty: true
           script_stop: true
           command_timeout: 60m
           script: |
-            echo "=== WHOAMI TEST ==="
-            hostname
-            whoami
-            cd /d C:\apps\gestao-igreja
-            dir
-            echo "=== END TEST ==="
+            powershell -NoProfile -Command "
+              Write-Output '=== POWERSHELL TEST ==='
+              hostname
+              whoami
+              Get-Location
+              Get-ChildItem C:\apps\gestao-igreja
+              Write-Output '=== END TEST ==='
+            "
