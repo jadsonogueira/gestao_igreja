@@ -17,14 +17,14 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
           debug: true
-          request_pty: true
+          request_pty: false
           script_stop: true
           command_timeout: 60m
           script: |
-            powershell -NoProfile -ExecutionPolicy Bypass -Command "
-              Write-Output '=== FORCED PATH TEST ==='
-              Set-Location 'C:\apps\gestao-igreja'
-              Write-Output (Get-Location)
-              Get-ChildItem
-              Write-Output '=== END TEST ==='
-            "
+            cmd.exe /c "echo === MARKER START === > C:\apps\gestao-igreja\_deploy_marker.txt"
+            cmd.exe /c "echo TIME: %DATE% %TIME% >> C:\apps\gestao-igreja\_deploy_marker.txt"
+            cmd.exe /c "hostname >> C:\apps\gestao-igreja\_deploy_marker.txt"
+            cmd.exe /c "whoami >> C:\apps\gestao-igreja\_deploy_marker.txt"
+            cmd.exe /c "dir C:\apps\gestao-igreja >> C:\apps\gestao-igreja\_deploy_marker.txt"
+            cmd.exe /c "echo === MARKER END === >> C:\apps\gestao-igreja\_deploy_marker.txt"
+            cmd.exe /c "type C:\apps\gestao-igreja\_deploy_marker.txt"
