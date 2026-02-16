@@ -18,7 +18,10 @@ jobs:
           port: 22
           debug: true
           request_pty: false
+          script_stop: true
+          command_timeout: 60m
           script: |
             echo "=== START DEPLOY ==="
-            powershell -NoProfile -ExecutionPolicy Bypass -Command "& { $log='C:\apps\gestao-igreja\deploy-actions.log'; Remove-Item $log -Force -ErrorAction SilentlyContinue; & 'C:\apps\gestao-igreja\deploy.ps1' *>&1 | Tee-Object -FilePath $log; Get-Content -Path $log -Tail 200 }"
+            cd /d C:\apps\gestao-igreja
+            powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy.ps1
             echo "=== END DEPLOY ==="
