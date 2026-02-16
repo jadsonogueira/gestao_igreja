@@ -18,13 +18,10 @@ jobs:
           port: 22
           debug: true
           request_pty: false
-          # IMPORTANTE: desligar o guard que está causando "if ["
           script_stop: false
           command_timeout: 60m
           script: |
             powershell -NoProfile -ExecutionPolicy Bypass -Command "& {
-              $ErrorActionPreference = 'Stop'
-
               Write-Output '=== START DEPLOY ==='
               Set-Location 'C:\apps\gestao-igreja'
 
