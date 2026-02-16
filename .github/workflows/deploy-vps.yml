@@ -17,8 +17,8 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
           debug: true
-          request_pty: true
+          request_pty: false
           script: |
             echo "=== START DEPLOY ==="
-            cmd /c "powershell -NoProfile -ExecutionPolicy Bypass -File C:\apps\gestao-igreja\deploy.ps1 1> C:\apps\gestao-igreja\deploy-actions.log 2>&1 & type C:\apps\gestao-igreja\deploy-actions.log"
+            powershell -NoProfile -ExecutionPolicy Bypass -Command "& { $log='C:\apps\gestao-igreja\deploy-actions.log'; Remove-Item $log -Force -ErrorAction SilentlyContinue; & 'C:\apps\gestao-igreja\deploy.ps1' *>&1 | Tee-Object -FilePath $log; Get-Content -Path $log -Tail 200 }"
             echo "=== END DEPLOY ==="
