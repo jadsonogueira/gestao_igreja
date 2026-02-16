@@ -16,30 +16,35 @@ jobs:
           username: Administrator
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
-          script_stop: true
+          debug: true
+          request_pty: false
+          # IMPORTANTE: desligar o guard que está causando "if ["
+          script_stop: false
           command_timeout: 60m
           script: |
-            Write-Output "=== START DEPLOY ==="
+            powershell -NoProfile -ExecutionPolicy Bypass -Command "& {
+              Write-Output '=== START DEPLOY ==='
+              Set-Location 'C:\apps\gestao-igreja'
 
-            Set-Location "C:\apps\gestao-igreja"
+              Write-Output '==> Pull latest'
+              git fetch origin
+              git reset --hard origin/main
+              git clean -fd
 
-            Write-Output "==> Pull latest"
-            git fetch origin
-            git reset --hard origin/main
-            git clean -fd
+              Write-Output '==> Install deps'
+              npm install --legacy-peer-deps
 
-            Write-Output "==> Install deps"
-            npm install --legacy-peer-deps
+              Write-Output '==> Prisma generate'
+              npx prisma generate
 
-            Write-Output "==> Prisma generate"
-            npx prisma generate
+              Write-Output '==> Build'
+              npm run build
 
-            Write-Output "==> Build"
-            npm run build
+              Write-Output '==> Restart PM2'
+              pm2 startOrReload ecosystem.config.cjs --update-env
+              pm2 save
+              pm2 ls
 
-            Write-Output "==> Restart PM2"
-            pm2 startOrReload ecosystem.config.cjs --update-env
-            pm2 save
-            pm2 ls
-
-            Write-Output "=== DEPLOY END ==="
+              Write-Output '=== DEPLOY END ==='
+              exit 0
+            }"
