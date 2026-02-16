@@ -21,9 +21,9 @@ jobs:
           script_stop: true
           command_timeout: 60m
           script: |
-  echo "=== WHOAMI TEST ==="
-  hostname
-  whoami
-  cd /d C:\apps\gestao-igreja
-  dir
-  echo "=== END TEST ==="
+            echo "=== WHOAMI TEST ==="
+            hostname
+            whoami
+            cd /d C:\apps\gestao-igreja
+            dir
+            echo "=== END TEST ==="
