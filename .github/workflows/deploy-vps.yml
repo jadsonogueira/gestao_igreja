@@ -18,6 +18,5 @@ jobs:
           debug: true
           script: |
             echo "=== START DEPLOY ==="
-            cd C:\apps\gestao-igreja
-            powershell -NoProfile -ExecutionPolicy Bypass -Command "& { & 'C:\apps\gestao-igreja\deploy.ps1' 2>&1 | Out-String -Width 5000 }"
+            powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; cd 'C:\apps\gestao-igreja'; git fetch origin; git reset --hard origin/main; git clean -fd; npm install --legacy-peer-deps; npx prisma generate; npm run build; pm2 startOrReload ecosystem.config.cjs --update-env; pm2 save; pm2 ls"
             echo "=== END DEPLOY ==="
