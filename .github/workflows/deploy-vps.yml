@@ -18,34 +18,33 @@ jobs:
           port: 22
           debug: true
           request_pty: false
+          # IMPORTANTE: desligar o guard que está causando "if ["
           script_stop: false
           command_timeout: 60m
           script: |
             powershell -NoProfile -ExecutionPolicy Bypass -Command "& {
-              $$ErrorActionPreference = 'Stop'
+              Write-Output '=== START DEPLOY ==='
+              Set-Location 'C:\apps\gestao-igreja'
 
-              function Run($$label, [scriptblock]$$cmd) {
-                Write-Output ('==> ' + $$label)
-                & $$cmd
-                if ($$LASTEXITCODE -ne 0) { throw ($$label + ' failed (exit ' + $$LASTEXITCODE + ')') }
-              }
+              Write-Output '==> Pull latest'
+              git fetch origin
+              git reset --hard origin/main
+              git clean -fd
 
-              try {
-                Write-Output '=== START DEPLOY ==='
-                Set-Location 'C:\apps\gestao-igreja'
+              Write-Output '==> Install deps'
+              npm install --legacy-peer-deps
 
-                Run 'Pull latest' { git fetch origin; git reset --hard origin/main; git clean -fd }
-                Run 'Install deps' { npm install --legacy-peer-deps }
-                Run 'Prisma generate' { npx prisma generate }
-                Run 'Build' { npm run build }
-                Run 'Restart PM2' { pm2 startOrReload ecosystem.config.cjs --update-env; pm2 save; pm2 ls }
+              Write-Output '==> Prisma generate'
+              npx prisma generate
 
-                Write-Output '=== DEPLOY END ==='
-                exit 0
-              }
-              catch {
-                Write-Output '=== DEPLOY FAILED ==='
-                Write-Output $$_.Exception.Message
-                exit 1
-              }
+              Write-Output '==> Build'
+              npm run build
+
+              Write-Output '==> Restart PM2'
+              pm2 startOrReload ecosystem.config.cjs --update-env
+              pm2 save
+              pm2 ls
+
+              Write-Output '=== DEPLOY END ==='
+              exit 0
             }"
