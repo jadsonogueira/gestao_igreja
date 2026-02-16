@@ -18,17 +18,16 @@ jobs:
           port: 22
           debug: true
           request_pty: false
-          # IMPORTANTE: desligar o guard que está causando "if ["
           script_stop: false
           command_timeout: 60m
           script: |
             powershell -NoProfile -ExecutionPolicy Bypass -Command "& {
-              $ErrorActionPreference = 'Stop'
+              $$ErrorActionPreference = 'Stop'
 
-              function Run($label, [scriptblock]$cmd) {
-                Write-Output ('==> ' + $label)
-                & $cmd
-                if ($LASTEXITCODE -ne 0) { throw ($label + ' failed (exit ' + $LASTEXITCODE + ')') }
+              function Run($$label, [scriptblock]$$cmd) {
+                Write-Output ('==> ' + $$label)
+                & $$cmd
+                if ($$LASTEXITCODE -ne 0) { throw ($$label + ' failed (exit ' + $$LASTEXITCODE + ')') }
               }
 
               try {
@@ -46,7 +45,7 @@ jobs:
               }
               catch {
                 Write-Output '=== DEPLOY FAILED ==='
-                Write-Output $_.Exception.Message
+                Write-Output $$_.Exception.Message
                 exit 1
               }
             }"
