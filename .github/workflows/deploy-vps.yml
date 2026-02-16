@@ -1,30 +1,25 @@
-name: Deploy to VPS (gestao-igreja)
+name: SSH Test
 
 on:
   push:
     branches: ["main"]
 
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Deploy over SSH
+      - name: Simple SSH Test
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: Administrator
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
-          debug: true
           request_pty: false
-          script_stop: true
-          command_timeout: 60m
           script: |
-            cmd.exe /c "echo === MARKER START === > C:\apps\gestao-igreja\_deploy_marker.txt"
-            cmd.exe /c "echo TIME: %DATE% %TIME% >> C:\apps\gestao-igreja\_deploy_marker.txt"
-            cmd.exe /c "hostname >> C:\apps\gestao-igreja\_deploy_marker.txt"
-            cmd.exe /c "whoami >> C:\apps\gestao-igreja\_deploy_marker.txt"
-            cmd.exe /c "dir C:\apps\gestao-igreja >> C:\apps\gestao-igreja\_deploy_marker.txt"
-            cmd.exe /c "echo === MARKER END === >> C:\apps\gestao-igreja\_deploy_marker.txt"
-            cmd.exe /c "type C:\apps\gestao-igreja\_deploy_marker.txt"
+            Write-Output "=== SSH OK ==="
+            hostname
+            whoami
+            Get-Date
+            Write-Output "=== END ==="
