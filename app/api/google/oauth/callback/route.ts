@@ -98,8 +98,17 @@ export async function GET(req: Request) {
       },
     });
 
-    // ✅ Em vez de mostrar JSON, manda para a página de Escala
-    const redirectTo = new URL("/escala?google=connected", url.origin);
+    // ✅ Redirecionar usando headers do proxy (IIS) quando disponíveis
+    const host =
+      req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+    const proto =
+      req.headers.get("x-forwarded-proto") ?? "https";
+
+    const origin = host
+      ? `${proto}://${host}`
+      : (process.env.NEXTAUTH_URL ?? url.origin);
+
+    const redirectTo = new URL("/escala?google=connected", origin);
     return NextResponse.redirect(redirectTo);
   } catch (err: any) {
     return NextResponse.json(
