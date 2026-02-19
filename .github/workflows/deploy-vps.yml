@@ -21,6 +21,8 @@ jobs:
           echo "✅ VPS_HOST present"
           echo "✅ VPS_SSH_KEY present"
           echo "VPS_SSH_KEY length: ${#VPS_SSH_KEY}"
+          echo "$VPS_SSH_KEY" | head -n 1 | sed 's/./*/g'
+          echo "$VPS_SSH_KEY" | tail -n 1 | sed 's/./*/g'
 
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.0.3
