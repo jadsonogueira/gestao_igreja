@@ -9,6 +9,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Check secrets presence (safe)
+        shell: bash
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+        run: |
+          echo "Checking secrets..."
+          if [ -z "$VPS_HOST" ]; then echo "❌ VPS_HOST is EMPTY" && exit 1; fi
+          if [ -z "$VPS_SSH_KEY" ]; then echo "❌ VPS_SSH_KEY is EMPTY" && exit 1; fi
+          echo "✅ VPS_HOST present"
+          echo "✅ VPS_SSH_KEY present"
+          echo "VPS_SSH_KEY length: ${#VPS_SSH_KEY}"
+
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -17,7 +30,7 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
           debug: true
-          request_pty: false
+          request_pty: true
           script_stop: false
           command_timeout: 60m
           script: |
