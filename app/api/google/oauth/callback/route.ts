@@ -78,7 +78,7 @@ export async function GET(req: Request) {
 
     const expiryDate = expiresIn ? new Date(Date.now() + expiresIn * 1000) : null;
 
-    const saved = await prisma.googleIntegration.upsert({
+    await prisma.googleIntegration.upsert({
       where: { provider: "google_calendar" },
       create: {
         provider: "google_calendar",
@@ -98,16 +98,9 @@ export async function GET(req: Request) {
       },
     });
 
-    return NextResponse.json({
-      ok: true,
-      message: "Google conectado e token salvo no banco ✅",
-      saved: {
-        id: saved.id,
-        provider: saved.provider,
-        hasRefreshToken: !!saved.refreshToken,
-        expiryDate: saved.expiryDate,
-      },
-    });
+    // ✅ Em vez de mostrar JSON, manda para a página de Escala
+    const redirectTo = new URL("/escala?google=connected", url.origin);
+    return NextResponse.redirect(redirectTo);
   } catch (err: any) {
     return NextResponse.json(
       { ok: false, error: String(err?.message ?? err) },
